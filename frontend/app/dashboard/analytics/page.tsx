@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import {
   MessageSquare, Clock, PhoneCall, Timer, UserCheck, CheckCircle,
-  Download, Image as ImageIcon, FileText, Printer, ChevronDown,
+  Download, Image as ImageIcon, FileText, Printer, ChevronDown, Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,6 +41,7 @@ export default function AnalyticsPage() {
   const [customTo, setCustomTo] = useState("");
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [activePrintChart, setActivePrintChart] = useState<string | null>(null);
+  const [openChartMenu, setOpenChartMenu] = useState<string | null>(null);
 
   const chart1Ref = useRef<HTMLDivElement>(null);
   const chart2Ref = useRef<HTMLDivElement>(null);
@@ -106,8 +107,11 @@ export default function AnalyticsPage() {
 
   const chartData = filtered.map(d => ({ ...d, date: formatDate(d.date) }));
 
+  const creditsUsed = 1240;
+
   const stats = [
     { id: "messages", label: "Total Messages", value: totalMessages.toLocaleString(), rawValue: totalMessages.toString(), icon: MessageSquare, color: "text-convix-600", bg: "bg-convix-50" },
+    { id: "credits", label: "Credits Used", value: creditsUsed.toLocaleString(), rawValue: creditsUsed.toString(), icon: Zap, color: "text-amber-600", bg: "bg-amber-50" },
     { id: "latency", label: "Avg Latency", value: `${avgLatency} ms`, rawValue: `${avgLatency} ms`, icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
     { id: "calls", label: "Total Calls", value: totalCalls.toLocaleString(), rawValue: totalCalls.toString(), icon: PhoneCall, color: "text-blue-600", bg: "bg-blue-50" },
     { id: "call_dur", label: "Avg Call Duration", value: `${avgCallDur} min`, rawValue: `${avgCallDur} min`, icon: Timer, color: "text-teal-600", bg: "bg-teal-50" },
@@ -185,28 +189,38 @@ export default function AnalyticsPage() {
     csvData: object[];
     csvFile: string;
     pngFile: string;
-  }) => (
-    <div className="flex items-center gap-1">
-      <button onClick={() => exportChartPng(cRef, pngFile)}
-        title="Download PNG"
-        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-        <ImageIcon className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={() => exportChartCsv(csvData, csvFile)}
-        title="Download CSV"
-        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-        <FileText className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={() => setActivePrintChart(chartId)}
-        title="Print / PDF"
-        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-        <Printer className="w-3.5 h-3.5" />
-      </button>
-    </div>
-  );
+  }) => {
+    const isOpen = openChartMenu === chartId;
+    return (
+      <div className="relative">
+        <button
+          onClick={e => { e.stopPropagation(); setOpenChartMenu(isOpen ? null : chartId); }}
+          className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-muted transition-colors">
+          <Download className="w-3 h-3" />
+          <ChevronDown className={cn("w-2.5 h-2.5 transition-transform", isOpen && "rotate-180")} />
+        </button>
+        {isOpen && (
+          <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-xl shadow-lg z-20 overflow-hidden w-36">
+            <button onClick={() => { exportChartPng(cRef, pngFile); setOpenChartMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left">
+              <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" /> PNG image
+            </button>
+            <button onClick={() => { exportChartCsv(csvData, csvFile); setOpenChartMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left">
+              <FileText className="w-3.5 h-3.5 text-muted-foreground" /> CSV data
+            </button>
+            <button onClick={() => { setActivePrintChart(chartId); setOpenChartMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left">
+              <Printer className="w-3.5 h-3.5 text-muted-foreground" /> PDF / Print
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-6 animate-fade-in" onClick={() => showExportMenu && setShowExportMenu(false)}>
+    <div className="space-y-6 animate-fade-in" onClick={() => { if (showExportMenu) setShowExportMenu(false); if (openChartMenu) setOpenChartMenu(null); }}>
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground">Analytics</h1>

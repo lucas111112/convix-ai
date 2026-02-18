@@ -188,8 +188,8 @@ export default function WidgetPage() {
               </div>
 
               {/* Browser content */}
-              <div className={cn("rounded-b-xl border border-gray-200 relative overflow-hidden", pageBg,
-                template === "fullpage" ? "h-[400px]" : "h-[360px]"
+              <div className={cn("rounded-b-xl border border-gray-200 relative", pageBg,
+                template === "fullpage" ? "h-[400px]" : "h-[360px] overflow-hidden"
               )}>
                 {/* Fake page content (not full page) */}
                 {template !== "fullpage" && (
@@ -241,8 +241,8 @@ export default function WidgetPage() {
 
                 {/* Side panel template */}
                 {template === "sidepanel" && (
-                  <div className="absolute inset-y-0 right-0 w-[180px] border-l border-gray-200 flex flex-col overflow-hidden"
-                    style={{ backgroundColor: config.theme === "dark" ? "#1f2937" : "white", boxShadow: shadowStyles[config.shadow] }}>
+                  <div className="absolute inset-y-0 right-0 w-[180px] border-l border-gray-200 flex flex-col"
+                    style={{ backgroundColor: config.theme === "dark" ? "#1f2937" : "white", boxShadow: shadowStyles[config.shadow], borderTopLeftRadius: config.cornerRadius, borderBottomLeftRadius: config.cornerRadius, overflow: "hidden" }}>
                     <div className="px-3 py-2 flex items-center gap-2 shrink-0" style={{ backgroundColor: config.primaryColor }}>
                       <Bot className="w-3.5 h-3.5 text-white" />
                       <span className="text-[10px] font-medium text-white">{config.headerTitle}</span>
@@ -296,7 +296,7 @@ export default function WidgetPage() {
                 {/* Full page template */}
                 {template === "fullpage" && (
                   <div className="absolute inset-0 flex flex-col"
-                    style={{ backgroundColor: config.theme === "dark" ? "#111827" : "white" }}>
+                    style={{ backgroundColor: config.theme === "dark" ? "#111827" : "white", borderRadius: config.cornerRadius, overflow: "hidden" }}>
                     <div className="px-4 py-3 flex items-center gap-3 shrink-0" style={{ backgroundColor: config.primaryColor }}>
                       <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
                         <Bot className="w-5 h-5 text-white" />

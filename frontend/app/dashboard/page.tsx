@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { MessageSquare, Clock, UserCheck, Users, Bot, BookOpen, BarChart3, AppWindow, CheckCircle, Zap } from "lucide-react";
+import { MessageSquare, Clock, UserCheck, Users, Bot, BarChart3, AppWindow, CheckCircle, Zap } from "lucide-react";
 import { mockAgents } from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
 
@@ -11,17 +11,20 @@ export default function DashboardPage() {
   const redirects = 1;
   const avgLatency = 642;
   const activeNow = mockAgents.filter(a => a.status === "active").length;
+  const creditsUsed = 1240;
+  const creditsLimit = 10000;
 
   const stats = [
     { label: "Total Conversations", value: total.toLocaleString(), icon: MessageSquare, color: "text-convix-600", bg: "bg-convix-50", change: "+12% this week" },
     { label: "Redirects to Human", value: redirects.toString(), icon: UserCheck, color: "text-orange-600", bg: "bg-orange-50", change: `${((redirects / total) * 100).toFixed(0)}% of total` },
     { label: "Avg Latency", value: `${avgLatency} ms`, icon: Clock, color: "text-purple-600", bg: "bg-purple-50", change: "−43 ms vs last week" },
     { label: "Active Now", value: activeNow.toString(), icon: Users, color: "text-green-600", bg: "bg-green-50", change: `${activeNow} agent${activeNow !== 1 ? "s" : ""} running` },
+    { label: "Credits Used", value: creditsUsed.toLocaleString(), icon: Zap, color: "text-amber-600", bg: "bg-amber-50", change: `${creditsUsed.toLocaleString()} / ${creditsLimit.toLocaleString()} this month` },
   ];
 
   const quickActions = [
     { label: "Create Agent", desc: "Build a new AI agent", icon: Bot, href: "/dashboard/agents", color: "text-convix-600", bg: "bg-convix-50" },
-    { label: "Add Knowledge", desc: "Train your agent", icon: BookOpen, href: "/dashboard/agents", color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Add Knowledge", desc: "Train your agent", icon: MessageSquare, href: "/dashboard/agents", color: "text-blue-600", bg: "bg-blue-50" },
     { label: "View Analytics", desc: "Usage & performance", icon: BarChart3, href: "/dashboard/analytics", color: "text-purple-600", bg: "bg-purple-50" },
     { label: "Widget Builder", desc: "Get embed code", icon: AppWindow, href: "/dashboard/widget", color: "text-teal-600", bg: "bg-teal-50" },
   ];
@@ -47,7 +50,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {stats.map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-border p-5">
             <div className="flex items-center justify-between mb-3">
