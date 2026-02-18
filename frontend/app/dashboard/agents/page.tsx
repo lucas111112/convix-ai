@@ -21,7 +21,7 @@ interface CredField { key: string; label: string; type: "text" | "password"; pla
 interface ChannelDef {
   id: string; label: string; icon: string; description: string;
   creds: CredField[]; helperLabel?: string; helperUrl?: string;
-  note?: string; requiresVoice?: boolean;
+  note?: string; voiceNote?: string; requiresVoice?: boolean;
 }
 
 const CHANNEL_DEFS: ChannelDef[] = [
@@ -37,6 +37,7 @@ const CHANNEL_DEFS: ChannelDef[] = [
     helperLabel: "Set up at developers.facebook.com → WhatsApp → Getting Started",
     helperUrl: "https://developers.facebook.com",
     note: "Requires a verified Meta Business account.",
+    voiceNote: "🎙️ Voice messages supported — users can send voice memos; the agent transcribes and replies via text. For actual phone calls, use Twilio Voice.",
   },
   {
     id: "telegram", label: "Telegram Bot", icon: "✈️",
@@ -44,6 +45,7 @@ const CHANNEL_DEFS: ChannelDef[] = [
     creds: [{ key: "botToken", label: "Bot Token", type: "password", placeholder: "123456:ABC-DEF..." }],
     helperLabel: "Create a bot via @BotFather on Telegram (free, instant)",
     note: "Free to use. No approval process required.",
+    voiceNote: "🎙️ Voice messages supported — users can send voice memos; the agent transcribes and replies via text. For actual phone calls, use Twilio Voice.",
   },
   {
     id: "messenger", label: "Facebook Messenger (Meta Graph API)", icon: "💙",
@@ -91,6 +93,17 @@ const CHANNEL_DEFS: ChannelDef[] = [
     note: "Uses Twilio Voice. Billed per minute. Configure Twilio webhook: https://api.axon.ai/v1/voice/YOUR_AGENT_ID",
     requiresVoice: true,
   },
+  {
+    id: "email", label: "Email via SendGrid", icon: "📧",
+    description: "Handle inbound support emails automatically",
+    creds: [
+      { key: "apiKey", label: "SendGrid API Key", type: "password" },
+      { key: "fromAddress", label: "From Address", type: "text", placeholder: "support@yourcompany.com" },
+      { key: "inboundDomain", label: "Inbound Parse Domain", type: "text", placeholder: "mail.yourcompany.com" },
+    ],
+    helperLabel: "Configure Inbound Parse at app.sendgrid.com → Settings",
+    note: "AI reads inbound emails and replies automatically via SendGrid.",
+  },
 ];
 
 // ── Knowledge source definitions ────────────────────────────────────────────
@@ -122,7 +135,7 @@ interface ChannelState { enabled: boolean; creds: Record<string, string> }
 interface AgentEditForm {
   name: string; systemPrompt: string; voiceEnabled: boolean;
   ttsVoice: string; speakingSpeed: number;
-  confidenceThreshold: number; handoffDest: string;
+  handoffEnabled: boolean; confidenceThreshold: number; handoffDest: string; supportEmail: string;
   knowledge: Omit<KnowledgeItem, "id" | "createdAt">[];
   channels: Record<string, ChannelState>;
   businessHoursStart: string; businessHoursEnd: string;
@@ -149,7 +162,7 @@ const emptyEditForm = (agent?: Agent, kb?: KnowledgeItem[]): AgentEditForm => ({
   systemPrompt: agent?.systemPrompt ?? "",
   voiceEnabled: agent ? (agent.mode === "voice" || agent.mode === "both") : false,
   ttsVoice: "Alloy", speakingSpeed: 1.0,
-  confidenceThreshold: 0.65, handoffDest: "live_agent",
+  handoffEnabled: true, confidenceThreshold: 0.65, handoffDest: "live_agent", supportEmail: "",
   knowledge: (kb ?? []).map(({ id: _id, createdAt: _c, ...rest }) => rest),
   channels: initChannels(),
   businessHoursStart: "09:00", businessHoursEnd: "18:00",
@@ -157,6 +170,39 @@ const emptyEditForm = (agent?: Agent, kb?: KnowledgeItem[]): AgentEditForm => ({
 });
 
 const emptyKbForm = (): KbForm => ({ type: "text", title: "", content: "", url: "", question: "", answer: "", fileName: "" });
+
+// ── Voice preview ─────────────────────────────────────────────────────────────
+
+const VOICE_DESCRIPTIONS: Record<string, string> = {
+  Alloy: "Neutral, balanced",
+  Echo: "Clear, professional",
+  Fable: "Warm, storytelling",
+  Onyx: "Deep, authoritative",
+  Nova: "Bright, friendly",
+  Shimmer: "Soft, conversational",
+};
+
+function previewVoice(voiceName: string, speed: number) {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const speak = (voices: SpeechSynthesisVoice[]) => {
+    const utterance = new SpeechSynthesisUtterance("Hi there! I'm your AI assistant, ready to help.");
+    utterance.rate = speed;
+    // Pitch by voice character
+    const pitchMap: Record<string, number> = { Shimmer: 1.2, Nova: 1.2, Onyx: 0.75, Fable: 1.05 };
+    utterance.pitch = pitchMap[voiceName] ?? 1.0;
+    // Pick a matching browser voice
+    const femaleVoices = ["Nova", "Shimmer"];
+    const prefer = femaleVoices.includes(voiceName) ? "female" : "male";
+    const en = voices.filter(v => v.lang.startsWith("en"));
+    const match = en.find(v => prefer === "female" ? /female|zira|karen|samantha|victoria|susan/i.test(v.name) : /male|david|mark|daniel|alex/i.test(v.name));
+    utterance.voice = match ?? en[0] ?? null;
+    window.speechSynthesis.speak(utterance);
+  };
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length) { speak(voices); }
+  else { window.speechSynthesis.onvoiceschanged = () => { speak(window.speechSynthesis.getVoices()); }; }
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -536,12 +582,20 @@ export default function AgentsPage() {
                     <div className="space-y-3 pl-3 border-l-2 border-convix-200">
                       <div>
                         <label className="text-xs font-medium text-muted-foreground mb-1 block">TTS Voice</label>
-                        <select value={editForm.ttsVoice} onChange={e => setEditForm(p => ({ ...p, ttsVoice: e.target.value }))}
-                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
-                          {["Alloy", "Echo", "Fable", "Onyx", "Nova", "Shimmer"].map(v => (
-                            <option key={v} value={v}>{v}</option>
-                          ))}
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <select value={editForm.ttsVoice} onChange={e => setEditForm(p => ({ ...p, ttsVoice: e.target.value }))}
+                            className="flex-1 px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
+                            {["Alloy", "Echo", "Fable", "Onyx", "Nova", "Shimmer"].map(v => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
+                          </select>
+                          <button onClick={() => previewVoice(editForm.ttsVoice, editForm.speakingSpeed)}
+                            title="Preview voice"
+                            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-convix-300 text-convix-700 rounded-lg hover:bg-convix-50 transition-colors shrink-0">
+                            <Play className="w-3 h-3" /> Preview
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1">{VOICE_DESCRIPTIONS[editForm.ttsVoice]}</p>
                       </div>
                       <div>
                         <label className="text-xs font-medium text-muted-foreground mb-2 block">
@@ -555,28 +609,51 @@ export default function AgentsPage() {
                     </div>
                   )}
 
-                  {/* Confidence threshold */}
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-2 block">
-                      Confidence Threshold: <span className="text-foreground font-semibold">{editForm.confidenceThreshold}</span>
-                    </label>
-                    <input type="range" min="0.3" max="0.9" step="0.05" value={editForm.confidenceThreshold}
-                      onChange={e => setEditForm(p => ({ ...p, confidenceThreshold: parseFloat(e.target.value) }))}
-                      className="w-full accent-convix-600" />
-                    <div className="flex justify-between text-xs text-muted-foreground mt-1"><span>More AI answers</span><span>More human handoffs</span></div>
-                    <p className="text-xs text-muted-foreground mt-1.5">AI hands off when confidence drops below this value.</p>
-                  </div>
-
-                  {/* Handoff destination */}
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Handoff Destination</label>
-                    <select value={editForm.handoffDest} onChange={e => setEditForm(p => ({ ...p, handoffDest: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
-                      <option value="live_agent">Live Agent (in-dashboard)</option>
-                      <option value="zendesk">Zendesk</option>
-                      <option value="freshdesk">Freshdesk</option>
-                      <option value="email">Email Queue</option>
-                    </select>
+                  {/* Route to Human Agent toggle */}
+                  <div className="border border-border rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2.5 bg-muted/20">
+                      <div>
+                        <div className="text-xs font-medium text-foreground">Route to Human Agent</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">When off, the AI never escalates — it handles everything.</div>
+                      </div>
+                      <button onClick={() => setEditForm(p => ({ ...p, handoffEnabled: !p.handoffEnabled }))}
+                        className={cn("relative rounded-full transition-colors shrink-0", editForm.handoffEnabled ? "bg-convix-600" : "bg-muted border border-border")}
+                        style={{ height: "22px", width: "40px" }}>
+                        <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform", editForm.handoffEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                      </button>
+                    </div>
+                    {editForm.handoffEnabled && (
+                      <div className="px-3 py-3 border-t border-border space-y-3">
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                            Confidence Threshold: <span className="text-foreground font-semibold">{editForm.confidenceThreshold}</span>
+                          </label>
+                          <input type="range" min="0.3" max="0.9" step="0.05" value={editForm.confidenceThreshold}
+                            onChange={e => setEditForm(p => ({ ...p, confidenceThreshold: parseFloat(e.target.value) }))}
+                            className="w-full accent-convix-600" />
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1"><span>More AI answers</span><span>More human handoffs</span></div>
+                          <p className="text-xs text-muted-foreground mt-1">AI hands off when confidence drops below this value.</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Handoff Destination</label>
+                          <select value={editForm.handoffDest} onChange={e => setEditForm(p => ({ ...p, handoffDest: e.target.value }))}
+                            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
+                            <option value="live_agent">Live Agent (in-dashboard)</option>
+                            <option value="zendesk">Zendesk</option>
+                            <option value="freshdesk">Freshdesk</option>
+                            <option value="email">Email Queue</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Support Email</label>
+                          <input type="email" value={editForm.supportEmail}
+                            onChange={e => setEditForm(p => ({ ...p, supportEmail: e.target.value }))}
+                            placeholder="support@yourcompany.com"
+                            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                          <p className="text-[10px] text-muted-foreground mt-1">The AI will mention this address when routing to a human.</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Danger zone */}
@@ -717,6 +794,9 @@ export default function AgentsPage() {
                                 {ch.note && (
                                   <p className="text-[10px] text-muted-foreground bg-muted/40 px-3 py-2 rounded-lg">{ch.note}</p>
                                 )}
+                                {ch.voiceNote && (
+                                  <p className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg">{ch.voiceNote}</p>
+                                )}
                                 <button onClick={() => toast.success(`${ch.label} connected!`)}
                                   className="px-3 py-1.5 text-xs bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
                                   Connect channel
@@ -813,6 +893,7 @@ export default function AgentsPage() {
                         <div>
                           <h3 className="text-sm font-semibold text-foreground">Conversation Tagging</h3>
                           <p className="text-xs text-muted-foreground">Auto-categorise conversations using a lightweight model.</p>
+                          <p className="text-[10px] text-amber-600 mt-0.5 font-medium">⚡ Auto-tagging costs additional credits per conversation.</p>
                         </div>
                       </div>
                       <button onClick={() => setEditForm(p => ({ ...p, taggingEnabled: !p.taggingEnabled }))}

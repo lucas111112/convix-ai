@@ -3,8 +3,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  LayoutDashboard, MessageSquare, BarChart3, AppWindow,
-  BookOpen, Bot, ChevronLeft, ChevronRight,
+  LayoutDashboard, BarChart3, AppWindow,
+  Bot, ChevronLeft, ChevronRight,
   Bell, Search, LogOut, User, Layers, BookMarked, CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,10 +12,8 @@ import { cn } from "@/lib/utils";
 const navMain = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Agents", href: "/dashboard/agents", icon: Bot },
-  { label: "Conversations", href: "/dashboard/conversations", icon: MessageSquare, badge: 3 },
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "Widget", href: "/dashboard/widget", icon: AppWindow },
-  { label: "Training", href: "/dashboard/training", icon: BookOpen },
 ];
 
 const navSecondary = [

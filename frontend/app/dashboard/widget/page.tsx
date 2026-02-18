@@ -15,6 +15,10 @@ interface WidgetConfig {
   theme: "light" | "dark";
   greeting: string;
   position: "bottom-right" | "bottom-left" | "top-right";
+  cornerRadius: number;
+  shadow: "none" | "soft" | "strong";
+  headerTitle: string;
+  inputPlaceholder: string;
 }
 
 const TEMPLATES: { id: Template; label: string; desc: string; ascii: string }[] = [
@@ -49,6 +53,16 @@ const defaultConfig: WidgetConfig = {
   theme: "light",
   greeting: "Hi! How can I help?",
   position: "bottom-right",
+  cornerRadius: 16,
+  shadow: "soft",
+  headerTitle: "Axon AI",
+  inputPlaceholder: "Type a message…",
+};
+
+const shadowStyles: Record<"none" | "soft" | "strong", string> = {
+  none: "none",
+  soft: "0 4px 24px rgba(0,0,0,0.12)",
+  strong: "0 8px 40px rgba(0,0,0,0.28)",
 };
 
 export default function WidgetPage() {
@@ -67,6 +81,9 @@ export default function WidgetPage() {
     primaryColor: "${config.primaryColor}",
     position: "${config.position}",  // bubble only: bottom-right | bottom-left | top-right
     greeting: "${config.greeting}",
+    headerTitle: "${config.headerTitle}",
+    cornerRadius: ${config.cornerRadius},
+    shadow: "${config.shadow}",
   };
 </script>
 <script src="https://cdn.axon.ai/widget.js" defer></script>`;
@@ -78,6 +95,9 @@ export default function WidgetPage() {
   theme="${config.theme}"
   primaryColor="${config.primaryColor}"
   greeting="${config.greeting}"
+  headerTitle="${config.headerTitle}"
+  cornerRadius={${config.cornerRadius}}
+  shadow="${config.shadow}"
 />`;
 
   const vueSnippet = `import { AxonWidget } from "@axon-ai/vue";
@@ -85,6 +105,8 @@ export default function WidgetPage() {
 <AxonWidget
   :agentId="import.meta.env.VITE_AXON_AGENT_ID"
   theme="${config.theme}"
+  headerTitle="${config.headerTitle}"
+  :cornerRadius="${config.cornerRadius}"
 />`;
 
   const snippets: Record<CodeTab, string> = { html: htmlSnippet, react: reactSnippet, vue: vueSnippet };
@@ -182,13 +204,13 @@ export default function WidgetPage() {
                 {/* Bubble template */}
                 {template === "bubble" && (
                   <>
-                    <div className={cn("absolute w-[220px] rounded-2xl shadow-2xl border flex flex-col overflow-hidden", chatBg,
+                    <div className={cn("absolute w-[220px] border flex flex-col overflow-hidden", chatBg,
                       config.position === "bottom-left" ? "left-3 bottom-12" : "right-3 bottom-12",
                       config.position === "top-right" ? "right-3 top-3 bottom-auto" : ""
-                    )} style={{ height: "200px" }}>
+                    )} style={{ height: "200px", borderRadius: config.cornerRadius, boxShadow: shadowStyles[config.shadow] }}>
                       <div className="px-3 py-2 flex items-center gap-2 shrink-0" style={{ backgroundColor: config.primaryColor }}>
                         <Bot className="w-3.5 h-3.5 text-white" />
-                        <span className="text-[10px] font-medium text-white">Axon AI</span>
+                        <span className="text-[10px] font-medium text-white">{config.headerTitle}</span>
                         <div className="ml-auto w-1.5 h-1.5 rounded-full bg-green-300" />
                       </div>
                       <div className="flex-1 p-2 space-y-1.5 overflow-hidden">
@@ -203,7 +225,7 @@ export default function WidgetPage() {
                         ))}
                       </div>
                       <div className="border-t border-gray-200 px-2 py-1 flex items-center gap-1 shrink-0">
-                        <input readOnly placeholder="Type…" className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
+                        <input readOnly placeholder={config.inputPlaceholder} className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
                         <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
                           <Send className="w-2 h-2 text-white" />
                         </div>
@@ -220,10 +242,10 @@ export default function WidgetPage() {
                 {/* Side panel template */}
                 {template === "sidepanel" && (
                   <div className="absolute inset-y-0 right-0 w-[180px] border-l border-gray-200 flex flex-col overflow-hidden"
-                    style={{ backgroundColor: config.theme === "dark" ? "#1f2937" : "white" }}>
+                    style={{ backgroundColor: config.theme === "dark" ? "#1f2937" : "white", boxShadow: shadowStyles[config.shadow] }}>
                     <div className="px-3 py-2 flex items-center gap-2 shrink-0" style={{ backgroundColor: config.primaryColor }}>
                       <Bot className="w-3.5 h-3.5 text-white" />
-                      <span className="text-[10px] font-medium text-white">Axon AI</span>
+                      <span className="text-[10px] font-medium text-white">{config.headerTitle}</span>
                     </div>
                     <div className="flex-1 p-2 space-y-1.5 overflow-hidden">
                       {msgs.map((m, i) => (
@@ -237,7 +259,7 @@ export default function WidgetPage() {
                       ))}
                     </div>
                     <div className="border-t border-gray-200 px-2 py-1 flex items-center gap-1 shrink-0">
-                      <input readOnly placeholder="Type…" className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
+                      <input readOnly placeholder={config.inputPlaceholder} className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
                     </div>
                   </div>
                 )}
@@ -245,10 +267,10 @@ export default function WidgetPage() {
                 {/* Inline template */}
                 {template === "inline" && (
                   <div className="px-4 pb-4">
-                    <div className={cn("rounded-xl border overflow-hidden shadow-sm", chatBg)} style={{ height: "215px" }}>
+                    <div className={cn("border overflow-hidden", chatBg)} style={{ height: "215px", borderRadius: config.cornerRadius, boxShadow: shadowStyles[config.shadow] }}>
                       <div className="px-3 py-2 flex items-center gap-2" style={{ backgroundColor: config.primaryColor }}>
                         <Bot className="w-3.5 h-3.5 text-white" />
-                        <span className="text-[10px] font-medium text-white">Axon AI</span>
+                        <span className="text-[10px] font-medium text-white">{config.headerTitle}</span>
                       </div>
                       <div className="p-2 space-y-1.5 overflow-hidden" style={{ height: "145px" }}>
                         {msgs.map((m, i) => (
@@ -262,7 +284,7 @@ export default function WidgetPage() {
                         ))}
                       </div>
                       <div className="border-t border-gray-200 px-2 py-1 flex items-center gap-1">
-                        <input readOnly placeholder="Type a message…" className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
+                        <input readOnly placeholder={config.inputPlaceholder} className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
                         <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
                           <Send className="w-2 h-2 text-white" />
                         </div>
@@ -280,7 +302,7 @@ export default function WidgetPage() {
                         <Bot className="w-5 h-5 text-white" />
                       </div>
                       <div>
-                        <div className="text-sm font-semibold text-white">Axon AI</div>
+                        <div className="text-sm font-semibold text-white">{config.headerTitle}</div>
                         <div className="text-[10px] text-white/70">Online</div>
                       </div>
                     </div>
@@ -298,7 +320,7 @@ export default function WidgetPage() {
                     <div className={cn("border-t px-4 py-2 flex items-center gap-2 shrink-0",
                       config.theme === "dark" ? "border-gray-700" : "border-border"
                     )}>
-                      <input readOnly placeholder="Type a message…" className={cn("flex-1 text-xs focus:outline-none bg-transparent",
+                      <input readOnly placeholder={config.inputPlaceholder} className={cn("flex-1 text-xs focus:outline-none bg-transparent",
                         config.theme === "dark" ? "text-gray-300 placeholder:text-gray-500" : "text-muted-foreground"
                       )} />
                       <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
@@ -364,6 +386,51 @@ export default function WidgetPage() {
                 </div>
               </div>
             )}
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Header Title
+              </label>
+              <input value={config.headerTitle} onChange={e => updateConfig({ headerTitle: e.target.value })}
+                placeholder="Axon AI"
+                className="w-full px-2.5 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Input Placeholder
+              </label>
+              <input value={config.inputPlaceholder} onChange={e => updateConfig({ inputPlaceholder: e.target.value })}
+                placeholder="Type a message…"
+                className="w-full px-2.5 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Corner Radius: <span className="text-foreground font-semibold">{config.cornerRadius}px</span>
+                <span className="font-normal ml-2 text-[10px]">
+                  {config.cornerRadius <= 4 ? "Sharp" : config.cornerRadius <= 12 ? "Rounded" : "Pill"}
+                </span>
+              </label>
+              <input type="range" min="0" max="24" step="2" value={config.cornerRadius}
+                onChange={e => updateConfig({ cornerRadius: parseInt(e.target.value) })}
+                className="w-full accent-convix-600" />
+              <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                <span>Sharp</span><span>Rounded</span><span>Pill</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Shadow</label>
+              <div className="flex gap-1.5">
+                {(["none", "soft", "strong"] as const).map(s => (
+                  <button key={s} onClick={() => updateConfig({ shadow: s })}
+                    className={cn("flex-1 py-1.5 text-xs font-medium rounded-lg border capitalize transition-colors",
+                      config.shadow === s ? "bg-convix-600 text-white border-convix-600" : "border-border text-muted-foreground hover:text-foreground"
+                    )}>{s}</button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Code output */}
