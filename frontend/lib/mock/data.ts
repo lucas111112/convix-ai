@@ -293,3 +293,67 @@ export const mockTrainingDocs = [
   { id: "doc_004", title: "Onboarding Guide", type: "MANUAL", wordCount: 2100, status: "indexed", isActive: true, createdAt: "2024-02-10" },
   { id: "doc_005", title: "Pricing Details", type: "FAQ", wordCount: 380, status: "pending", isActive: false, createdAt: "2024-02-18" },
 ];
+
+// ── Analytics Types & Data ──────────────────────────────────────────────────────
+// TODO: REPLACE WITH API — GET /analytics?from=&to=
+
+export interface AnalyticsDataPoint {
+  date: string;
+  messages: number;
+  avgLatency: number; // ms
+  calls: number;
+  avgCallDuration: number; // minutes
+  redirects: number;
+  resolutionRate: number; // 0-100
+}
+
+function generateAnalyticsData(): AnalyticsDataPoint[] {
+  const data: AnalyticsDataPoint[] = [];
+  const startDate = new Date("2025-11-20");
+  for (let i = 0; i < 90; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    const dow = d.getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    const wf = isWeekend ? 0.55 : 1.0;
+    const trend = 1 + (i / 90) * 0.35;
+    const messages = Math.max(20, Math.round(190 * wf * trend + Math.sin(i * 0.7) * 45 + Math.cos(i * 0.3) * 20));
+    const avgLatency = Math.max(200, Math.min(2000, Math.round(560 + Math.sin(i * 0.5) * 210 + Math.cos(i * 1.1) * 110)));
+    const calls = Math.max(2, Math.round(16 * wf * trend + Math.sin(i * 0.8) * 5));
+    const avgCallDuration = Math.max(0.5, Math.min(8, Math.round((2.6 + Math.sin(i * 0.4) * 1.3) * 10) / 10));
+    const redirects = Math.max(1, Math.round(9 * wf + Math.sin(i * 0.6) * 4));
+    const resolutionRate = Math.max(65, Math.min(99, Math.round(83 + Math.sin(i * 0.3) * 8)));
+    data.push({ date: d.toISOString().split("T")[0], messages, avgLatency, calls, avgCallDuration, redirects, resolutionRate });
+  }
+  return data;
+}
+
+export const mockAnalyticsData: AnalyticsDataPoint[] = generateAnalyticsData();
+
+// ── Knowledge Items ─────────────────────────────────────────────────────────────
+// TODO: REPLACE WITH API — GET /agents/:id/knowledge
+
+export interface KnowledgeItem {
+  id: string;
+  type: "text" | "url";
+  title: string;
+  content?: string;
+  url?: string;
+  createdAt: string;
+}
+
+export const mockKnowledgeItems: Record<string, KnowledgeItem[]> = {
+  agent_001: [
+    { id: "kb_001", type: "text", title: "Company Overview", content: "Acme Corp provides enterprise SaaS solutions for workflow automation. Founded 2018. 500+ enterprise clients. HQ: San Francisco.", createdAt: "2024-01-15" },
+    { id: "kb_002", type: "url", title: "API Documentation", url: "https://docs.acmecorp.com/api", createdAt: "2024-01-20" },
+    { id: "kb_003", type: "text", title: "Support Policies", content: "Standard plan: 24h response. Pro plan: 4h response. Enterprise: 1h SLA with dedicated engineer. Escalation: support@acmecorp.com.", createdAt: "2024-02-01" },
+  ],
+  agent_002: [
+    { id: "kb_004", type: "url", title: "Internal Analytics Dashboard", url: "https://internal.acmecorp.com/analytics", createdAt: "2024-02-01" },
+    { id: "kb_005", type: "text", title: "KPI Definitions", content: "MAU: unique users with ≥1 session/month. DAU: unique daily active users. Churn: cancellations / start-of-month count.", createdAt: "2024-02-05" },
+  ],
+  agent_003: [
+    { id: "kb_006", type: "text", title: "Call Scripts", content: "Opening: 'Thank you for calling Acme support, this is VoiceDesk.' Closing: 'Is there anything else I can help you with today?'", createdAt: "2024-02-10" },
+    { id: "kb_007", type: "url", title: "Product Catalog", url: "https://acmecorp.com/products", createdAt: "2024-02-12" },
+  ],
+};

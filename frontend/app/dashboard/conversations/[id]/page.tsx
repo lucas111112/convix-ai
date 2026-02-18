@@ -1,8 +1,8 @@
 "use client";
-import { use } from "react";
+import { use, useState, useEffect } from "react";
 import { mockConversations, mockCustomFields } from "@/lib/mock/data";
 import { formatRelativeTime, cn } from "@/lib/utils";
-import { ArrowLeft, Bot, User, Headphones, AlertTriangle, ExternalLink, Settings } from "lucide-react";
+import { ArrowLeft, Bot, User, Headphones, AlertTriangle, ExternalLink, Settings, Tag } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -16,12 +16,31 @@ const roleStyle = {
   human_agent: "bg-purple-600 text-white self-end",
 };
 
+const tagColors = ["bg-purple-50 text-purple-700 border-purple-200", "bg-teal-50 text-teal-700 border-teal-200", "bg-blue-50 text-blue-700 border-blue-200", "bg-pink-50 text-pink-700 border-pink-200"];
+
+function getConvTag(convId: string, tags: string[]): string | null {
+  if (tags.length === 0) return null;
+  const hash = convId.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return tags[hash % tags.length];
+}
+
 export default function ConversationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const conv = mockConversations.find(c => c.id === id);
   if (!conv) notFound();
 
   const detailFields = mockCustomFields.filter(f => f.showInDetail);
+  const [taggingEnabled, setTaggingEnabled] = useState(false);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    setTaggingEnabled(localStorage.getItem("axon-tagging-enabled") === "true");
+    const stored = localStorage.getItem("axon-available-tags");
+    if (stored) setAvailableTags(JSON.parse(stored));
+  }, []);
+
+  const convTag = taggingEnabled ? getConvTag(conv.id, availableTags) : null;
+  const tagColorClass = convTag ? tagColors[availableTags.indexOf(convTag) % tagColors.length] : "";
 
   return (
     <div className="animate-fade-in max-w-5xl">
@@ -101,6 +120,12 @@ export default function ConversationDetailPage({ params }: { params: Promise<{ i
               <div className="flex justify-between"><span className="text-muted-foreground">Channel</span><span className="font-medium capitalize">{conv.channel}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Messages</span><span className="font-medium">{conv.messageCount}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span className="font-medium">{Math.floor(conv.duration / 60)}m {conv.duration % 60}s</span></div>
+              {convTag && (
+                <div className="flex justify-between items-center pt-1">
+                  <span className="text-muted-foreground flex items-center gap-1 text-xs"><Tag className="w-3 h-3" />Tag</span>
+                  <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium border", tagColorClass)}>{convTag}</span>
+                </div>
+              )}
             </div>
           </div>
 

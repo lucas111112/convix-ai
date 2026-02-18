@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Save, AlertTriangle, Zap, Plus, Trash2 } from "lucide-react";
+import { Save, AlertTriangle, Zap, Plus, Trash2, Tag, X } from "lucide-react";
 import { mockCustomFields, type CustomField } from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +26,31 @@ export default function SettingsPage() {
   });
 
   const [customFields, setCustomFields] = useState<CustomField[]>(mockCustomFields);
+  const [taggingEnabled, setTaggingEnabled] = useState(false);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
 
-  const save = () => toast.success("Settings saved!");
+  useEffect(() => {
+    setTaggingEnabled(localStorage.getItem("axon-tagging-enabled") === "true");
+    const stored = localStorage.getItem("axon-available-tags");
+    if (stored) setAvailableTags(JSON.parse(stored));
+  }, []);
+
+  const saveTagging = () => {
+    localStorage.setItem("axon-tagging-enabled", String(taggingEnabled));
+    localStorage.setItem("axon-available-tags", JSON.stringify(availableTags));
+  };
+
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (!t || availableTags.includes(t)) return;
+    setAvailableTags(prev => [...prev, t]);
+    setTagInput("");
+  };
+
+  const removeTag = (tag: string) => setAvailableTags(prev => prev.filter(t => t !== tag));
+
+  const save = () => { saveTagging(); toast.success("Settings saved!"); };
 
   const addField = () => {
     const newField: CustomField = {
@@ -247,6 +270,61 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* Conversation Tagging */}
+      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-sm text-foreground">Conversation Tagging</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Auto-categorise conversations using a lightweight model. Off by default.</p>
+          </div>
+          <button onClick={() => setTaggingEnabled(!taggingEnabled)}
+            className={cn("relative rounded-full transition-colors shrink-0", taggingEnabled ? "bg-convix-600" : "bg-muted border border-border")}
+            style={{ height: "22px", width: "40px" }}>
+            <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+              taggingEnabled ? "translate-x-5" : "translate-x-0.5"
+            )} />
+          </button>
+        </div>
+
+        {taggingEnabled && (
+          <>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-2 block">Tags</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {availableTags.map(tag => (
+                  <span key={tag} className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-convix-50 text-convix-700 border border-convix-200">
+                    <Tag className="w-2.5 h-2.5" />
+                    {tag}
+                    <button onClick={() => removeTag(tag)} className="text-convix-400 hover:text-convix-700 transition-colors">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+                {availableTags.length === 0 && (
+                  <span className="text-xs text-muted-foreground italic">No tags yet. Add tags below.</span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && addTag()}
+                  placeholder="e.g. billing, onboarding, bug-report"
+                  className="flex-1 px-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                <button onClick={addTag}
+                  className="px-3 py-1.5 text-sm bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
+                  Add
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+              💡 A small classification model will assign one of these tags to each new conversation based on its content.
+            </p>
+          </>
+        )}
+        {!taggingEnabled && (
+          <p className="text-xs text-muted-foreground">Enable to configure auto-tagging categories for your conversations.</p>
         )}
       </div>
 

@@ -5,25 +5,55 @@ import { useState } from "react";
 import {
   LayoutDashboard, MessageSquare, BarChart3, Radio, AppWindow,
   BookOpen, Settings, Bot, ChevronLeft, ChevronRight,
-  Bell, Search, LogOut, User, Layers, Wrench
+  Bell, Search, LogOut, User, Layers, Download, BookMarked, CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const nav = [
+const navMain = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Agents", href: "/dashboard/agents", icon: Bot },
-  { label: "Tools", href: "/dashboard/tools", icon: Wrench },
   { label: "Conversations", href: "/dashboard/conversations", icon: MessageSquare, badge: 3 },
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "Channels", href: "/dashboard/channels", icon: Radio },
   { label: "Widget", href: "/dashboard/widget", icon: AppWindow },
   { label: "Training", href: "/dashboard/training", icon: BookOpen },
+];
+
+const navSecondary = [
+  { label: "Export", href: "/dashboard/export", icon: Download },
+  { label: "Docs", href: "/dashboard/docs", icon: BookMarked },
+  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+];
+
+const navBottom = [
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
+
+type NavItem = { label: string; href: string; icon: React.ElementType; badge?: number };
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+
+  const renderNav = (items: NavItem[]) =>
+    items.map(item => {
+      const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+      return (
+        <Link key={item.href} href={item.href}
+          className={cn("flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors relative",
+            active ? "bg-convix-50 text-convix-700 font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            collapsed && "justify-center px-0"
+          )}>
+          <item.icon className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>{item.label}</span>}
+          {!collapsed && item.badge && (
+            <span className="ml-auto bg-convix-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-medium">
+              {item.badge}
+            </span>
+          )}
+        </Link>
+      );
+    });
 
   return (
     <div className="flex h-screen bg-muted/20 overflow-hidden">
@@ -49,25 +79,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-          {nav.map(item => {
-            const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-            return (
-              <Link key={item.href} href={item.href}
-                className={cn("flex items-center gap-3 px-2 py-2 rounded-lg text-sm transition-colors relative",
-                  active ? "bg-convix-50 text-convix-700 font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  collapsed && "justify-center px-0"
-                )}>
-                <item.icon className="w-4 h-4 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-                {!collapsed && item.badge && (
-                  <span className="ml-auto bg-convix-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-medium">
-                    {item.badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
+          {renderNav(navMain)}
+
+          {/* Separator */}
+          <div className={cn("my-2", collapsed ? "mx-auto w-6 border-t border-border" : "border-t border-border mx-1")} />
+
+          {renderNav(navSecondary)}
+
+          {/* Separator */}
+          <div className={cn("my-2", collapsed ? "mx-auto w-6 border-t border-border" : "border-t border-border mx-1")} />
+
+          {renderNav(navBottom)}
         </nav>
 
         {/* Bottom */}
@@ -113,7 +136,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
             </button>
             <div className="flex items-center gap-2 ml-2">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse2" />
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
               <span className="text-xs text-muted-foreground">3 active</span>
             </div>
           </div>
