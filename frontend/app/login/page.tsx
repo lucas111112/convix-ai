@@ -24,7 +24,7 @@ export default function LoginPage() {
           <div className="w-9 h-9 rounded-xl bg-convix-600 flex items-center justify-center">
             <Bot className="w-5 h-5 text-white" />
           </div>
-          <span className="font-bold text-xl text-foreground">Convix AI</span>
+          <span className="font-bold text-xl text-foreground">Axon AI</span>
         </div>
         <div className="bg-white rounded-2xl border border-border p-8 shadow-sm">
           <h1 className="text-xl font-bold text-foreground mb-1">Welcome back</h1>
@@ -32,7 +32,7 @@ export default function LoginPage() {
           <form onSubmit={submit} className="space-y-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
-              <input type="email" defaultValue="demo@convix.ai" required
+              <input type="email" defaultValue="demo@axon.ai" required
                 className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             </div>
             <div>

@@ -1,15 +1,15 @@
 "use client";
 import { use } from "react";
-import { mockConversations } from "@/lib/mock/data";
+import { mockConversations, mockCustomFields } from "@/lib/mock/data";
 import { formatRelativeTime, cn } from "@/lib/utils";
-import { ArrowLeft, Bot, User, Headphones, AlertTriangle, CheckCircle, ExternalLink } from "lucide-react";
+import { ArrowLeft, Bot, User, Headphones, AlertTriangle, ExternalLink, Settings } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-// TODO: REPLACE WITH API — GET /stores/:id/conversations/:id
+// TODO: REPLACE WITH API — GET /agents/:id/conversations/:id
 
 const roleIcon = { ai: Bot, user: User, human_agent: Headphones };
-const roleLabel = { ai: "Convix AI", user: "Customer", human_agent: "Human Agent" };
+const roleLabel = { ai: "Axon AI", user: "Customer", human_agent: "Human Agent" };
 const roleStyle = {
   user: "bg-muted text-foreground self-start",
   ai: "bg-convix-600 text-white self-end",
@@ -21,8 +21,7 @@ export default function ConversationDetailPage({ params }: { params: Promise<{ i
   const conv = mockConversations.find(c => c.id === id);
   if (!conv) notFound();
 
-  const sentimentLabel = conv.sentiment > 0.5 ? "Positive" : conv.sentiment > 0 ? "Neutral" : "Negative";
-  const sentimentColor = conv.sentiment > 0.5 ? "text-green-600" : conv.sentiment > 0 ? "text-yellow-600" : "text-red-500";
+  const detailFields = mockCustomFields.filter(f => f.showInDetail);
 
   return (
     <div className="animate-fade-in max-w-5xl">
@@ -100,34 +99,47 @@ export default function ConversationDetailPage({ params }: { params: Promise<{ i
               <div className="flex justify-between"><span className="text-muted-foreground">Name</span><span className="font-medium text-foreground">{conv.customerName}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Email</span><span className="text-xs text-foreground truncate max-w-[120px]">{conv.customerEmail}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Channel</span><span className="font-medium capitalize">{conv.channel}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Sentiment</span><span className={cn("font-medium text-xs", sentimentColor)}>{sentimentLabel}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Intent</span><span className="font-medium">{(conv.intentScore * 100).toFixed(0)}%</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Messages</span><span className="font-medium">{conv.messageCount}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span className="font-medium">{Math.floor(conv.duration / 60)}m {conv.duration % 60}s</span></div>
             </div>
           </div>
 
-          {/* Revenue */}
-          {conv.revenueAttributed > 0 && (
-            <div className="bg-green-50 rounded-xl border border-green-100 p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                <span className="text-xs font-semibold text-green-700">Revenue Attributed</span>
+          {/* Custom fields */}
+          {detailFields.length > 0 ? (
+            <div className="bg-white rounded-xl border border-border p-4">
+              <h3 className="text-xs font-semibold text-foreground mb-3 uppercase tracking-wide">Custom Fields</h3>
+              <div className="space-y-2 text-sm">
+                {detailFields.map(f => (
+                  <div key={f.id} className="flex justify-between">
+                    <span className="text-muted-foreground">{f.label}</span>
+                    <span className="text-xs text-muted-foreground">—</span>
+                  </div>
+                ))}
               </div>
-              <div className="text-2xl font-bold text-green-700">${conv.revenueAttributed}</div>
-              <p className="text-xs text-green-600 mt-0.5">Attributed to this conversation</p>
+            </div>
+          ) : (
+            <div className="bg-muted/40 rounded-xl border border-border p-4">
+              <div className="flex items-start gap-2">
+                <Settings className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">No custom fields configured.</p>
+                  <Link href="/dashboard/settings" className="text-xs text-convix-600 hover:underline font-medium">Add in Settings →</Link>
+                </div>
+              </div>
             </div>
           )}
 
           {/* Handoff info */}
-          {conv.status === "handed_off" && conv.handoffReason && (
+          {conv.status === "handed_off" && (
             <div className="bg-orange-50 rounded-xl border border-orange-100 p-4">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-4 h-4 text-orange-500" />
                 <span className="text-xs font-semibold text-orange-700">Handoff Triggered</span>
               </div>
-              <p className="text-xs text-orange-700 mb-3">{conv.handoffReason}</p>
+              <p className="text-xs text-orange-700 mb-3">AI confidence dropped below threshold — escalated to human agent.</p>
               <div className="text-xs font-medium text-orange-800 mb-1">AI Summary for Agent:</div>
               <p className="text-xs text-orange-700 bg-orange-100/50 rounded p-2 leading-relaxed">
-                Customer is frustrated about a delayed order (#4892). AI attempted 2 resolution attempts, providing new ETAs. Customer escalated, requesting a manager. Sentiment is strongly negative. Customer has ordered before.
+                Customer needs urgent technical assistance. AI attempted to resolve but confidence score fell below threshold. Full context and conversation history available above.
               </p>
             </div>
           )}

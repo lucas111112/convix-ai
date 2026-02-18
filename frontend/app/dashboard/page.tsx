@@ -1,30 +1,11 @@
 "use client";
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { ArrowUp, ArrowDown, MessageSquare, DollarSign, AlertTriangle, Zap, TrendingUp, Activity } from "lucide-react";
-import { mockAnalyticsOverview, mockVolumeData, mockChannelData, mockConversations } from "@/lib/mock/data";
-import { formatCurrency, formatNumber, formatRelativeTime, cn } from "@/lib/utils";
+import { mockConversations } from "@/lib/mock/data";
+import { formatRelativeTime, cn } from "@/lib/utils";
 import Link from "next/link";
+import { NodeCanvas } from "@/components/dashboard/NodeCanvas";
+import type { CanvasNode, Connection } from "@/components/dashboard/NodeCanvas";
 
-function StatCard({ label, value, change, icon: Icon, prefix = "" }: {
-  label: string; value: string | number; change: number; icon: any; prefix?: string;
-}) {
-  const up = change > 0;
-  return (
-    <div className="bg-white rounded-xl border border-border p-5">
-      <div className="flex items-start justify-between mb-3">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <div className="w-8 h-8 rounded-lg bg-convix-50 flex items-center justify-center">
-          <Icon className="w-4 h-4 text-convix-600" />
-        </div>
-      </div>
-      <div className="text-2xl font-bold text-foreground mb-1">{prefix}{typeof value === "number" ? formatNumber(value) : value}</div>
-      <div className={cn("flex items-center gap-1 text-xs font-medium", up ? "text-green-600" : "text-red-500")}>
-        {up ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
-        {Math.abs(change)}% vs last week
-      </div>
-    </div>
-  );
-}
+// TODO: REPLACE WITH API — GET /workspaces/:id/overview
 
 const statusColors: Record<string, string> = {
   active: "bg-blue-50 text-blue-700",
@@ -33,74 +14,52 @@ const statusColors: Record<string, string> = {
   abandoned: "bg-muted text-muted-foreground",
 };
 
-const channelColors: Record<string, string> = {
-  web: "💬", whatsapp: "💚", instagram: "📸", sms: "📱", messenger: "💙", email: "📧",
+const channelEmoji: Record<string, string> = {
+  web: "💬", whatsapp: "💚", instagram: "📸", sms: "📱",
+  messenger: "💙", email: "📧", voice: "📞", slack: "🟨",
 };
 
-export default function DashboardPage() {
-  const overview = mockAnalyticsOverview;
+const defaultNodes: CanvasNode[] = [
+  {
+    id: "n1", type: "datasource", title: "Conversations API",
+    x: 60, y: 80,
+    config: { url: "/api/conversations/stats", method: "GET" },
+    showInAnalytics: true,
+  },
+  {
+    id: "n2", type: "metric", title: "Total Conversations",
+    x: 360, y: 60,
+    config: { label: "Total Conversations", value: "2,847", suffix: "", trend: "+18%" },
+    showInAnalytics: true,
+  },
+  {
+    id: "n3", type: "chart", title: "Volume Over Time",
+    x: 360, y: 220,
+    config: { chartType: "area", dataKey: "conversations", label: "Conversation Volume" },
+    showInAnalytics: true,
+  },
+];
 
+const defaultConnections: Connection[] = [
+  { id: "c1", sourceNodeId: "n1", targetNodeId: "n2" },
+  { id: "c2", sourceNodeId: "n1", targetNodeId: "n3" },
+];
+
+export default function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-xl font-bold text-foreground">Overview</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Last 7 days · Updated just now</p>
+        <p className="text-sm text-muted-foreground">Your workspace canvas — drag nodes to build your own dashboard.</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard label="Total Conversations" value={overview.totalConversations} change={overview.conversationsChange} icon={MessageSquare} />
-        <StatCard label="Revenue Attributed" value={formatCurrency(overview.revenueAttributed)} change={overview.revenueChange} icon={DollarSign} />
-        <StatCard label="Handoff Rate" value={`${overview.handoffRate}%`} change={overview.handoffChange} icon={AlertTriangle} />
-        <StatCard label="Avg Response Time" value={`${overview.avgResponseTime}s`} change={overview.responseTimeChange} icon={Zap} />
-      </div>
-
-      {/* Charts row */}
-      <div className="grid grid-cols-3 gap-4">
-        {/* Volume chart */}
-        <div className="col-span-2 bg-white rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold text-foreground text-sm">Conversation Volume</h3>
-              <p className="text-xs text-muted-foreground">Conversations vs resolved</p>
-            </div>
-            <TrendingUp className="w-4 h-4 text-muted-foreground" />
-          </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={mockVolumeData}>
-              <defs>
-                <linearGradient id="convGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} />
-              <Area type="monotone" dataKey="conversations" stroke="#6366f1" fill="url(#convGrad)" strokeWidth={2} name="Total" />
-              <Area type="monotone" dataKey="resolved" stroke="#22c55e" fill="none" strokeWidth={2} strokeDasharray="4 2" name="Resolved" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Channel breakdown */}
-        <div className="bg-white rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-foreground text-sm">By Channel</h3>
-            <Activity className="w-4 h-4 text-muted-foreground" />
-          </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={mockChannelData} layout="vertical">
-              <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
-              <YAxis type="category" dataKey="channel" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} width={60} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} />
-              <Bar dataKey="conversations" radius={[0, 4, 4, 0]}>
-                {mockChannelData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Node canvas */}
+      <div className="h-[420px] rounded-xl border border-border overflow-hidden">
+        <NodeCanvas
+          storageKey="overview-canvas"
+          defaultNodes={defaultNodes}
+          defaultConnections={defaultConnections}
+        />
       </div>
 
       {/* Recent conversations */}
@@ -119,7 +78,7 @@ export default function DashboardPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-foreground">{conv.customerName}</span>
-                  <span className="text-xs text-muted-foreground">{channelColors[conv.channel]}</span>
+                  <span className="text-xs text-muted-foreground">{channelEmoji[conv.channel] ?? "💬"}</span>
                 </div>
                 <p className="text-xs text-muted-foreground truncate max-w-sm">{conv.lastMessage}</p>
               </div>

@@ -1,77 +1,113 @@
 "use client";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Save, AlertTriangle, Zap } from "lucide-react";
+import { Save, AlertTriangle, Zap, Plus, Trash2 } from "lucide-react";
+import { mockCustomFields, type CustomField } from "@/lib/mock/data";
+import { cn } from "@/lib/utils";
 
-// TODO: REPLACE WITH API — GET/PATCH /stores/:id/settings
+// TODO: REPLACE WITH API — GET/PATCH /agents/:id/settings
+
+const ttsVoices = ["Alloy", "Echo", "Fable", "Onyx", "Nova", "Shimmer"];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
-    storeName: "My Store",
-    domain: "mystore.com",
-    platform: "Shopify",
-    plan: "Growth",
+    agentName: "Aria",
+    agentAvatar: "🤖",
+    systemPrompt: "You are Aria, a helpful assistant. Be concise, friendly, and professional. When you don't know something, say so and offer to connect the user with a human.",
+    plan: "Builder",
     timezone: "America/New_York",
-    brandVoice: "friendly",
     confidenceThreshold: 0.65,
-    handoffDest: "zendesk",
-    highValueThreshold: 200,
+    handoffDest: "live_agent",
     businessHoursStart: "09:00",
     businessHoursEnd: "18:00",
-    zendeskKey: "",
+    voiceEnabled: false,
+    ttsVoice: "Nova",
+    speakingSpeed: 1.0,
   });
 
+  const [customFields, setCustomFields] = useState<CustomField[]>(mockCustomFields);
+
   const save = () => toast.success("Settings saved!");
+
+  const addField = () => {
+    const newField: CustomField = {
+      id: `field_${Date.now()}`,
+      label: "New Field",
+      sourceEndpoint: "",
+      field: "",
+      showInList: true,
+      showInDetail: true,
+    };
+    setCustomFields(prev => [...prev, newField]);
+  };
+
+  const removeField = (id: string) => setCustomFields(prev => prev.filter(f => f.id !== id));
+
+  const updateField = (id: string, key: keyof CustomField, val: any) => {
+    setCustomFields(prev => prev.map(f => f.id === id ? { ...f, [key]: val } : f));
+  };
+
+  const avatarOptions = ["🤖", "🧠", "💬", "⚡", "🎯", "🦾", "🤝", "✨"];
 
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl">
       <div>
         <h1 className="text-xl font-bold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage your store and AI configuration.</p>
+        <p className="text-sm text-muted-foreground">Configure your agent identity, AI behaviour, and custom fields.</p>
       </div>
 
-      {/* Store Info */}
+      {/* Agent Identity */}
       <div className="bg-white rounded-xl border border-border p-5 space-y-4">
-        <h3 className="font-semibold text-sm text-foreground">Store Details</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <h3 className="font-semibold text-sm text-foreground">Agent Identity</h3>
+        <div className="flex items-center gap-4">
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Store Name</label>
-            <input value={settings.storeName} onChange={e => setSettings(p => ({ ...p, storeName: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Domain</label>
-            <input value={settings.domain} onChange={e => setSettings(p => ({ ...p, domain: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Platform</label>
-            <input value={settings.platform} disabled className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-muted cursor-not-allowed text-muted-foreground" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Current Plan</label>
-            <div className="flex items-center gap-2 px-3 py-2 text-sm border border-convix-200 rounded-lg bg-convix-50">
-              <Zap className="w-3.5 h-3.5 text-convix-600" />
-              <span className="font-medium text-convix-700">{settings.plan}</span>
-              <span className="ml-auto text-xs text-convix-600 underline cursor-pointer">Upgrade</span>
+            <label className="text-xs font-medium text-muted-foreground mb-2 block">Avatar</label>
+            <div className="flex gap-2 flex-wrap">
+              {avatarOptions.map(a => (
+                <button key={a} onClick={() => setSettings(p => ({ ...p, agentAvatar: a }))}
+                  className={cn("w-9 h-9 rounded-xl text-lg flex items-center justify-center border-2 transition-all",
+                    settings.agentAvatar === a ? "border-convix-600 bg-convix-50" : "border-transparent hover:border-border"
+                  )}>
+                  {a}
+                </button>
+              ))}
             </div>
           </div>
         </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
+          <input value={settings.agentName} onChange={e => setSettings(p => ({ ...p, agentName: e.target.value }))}
+            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+        </div>
+        <div className="flex items-center gap-2 px-3 py-2 text-sm border border-convix-200 rounded-lg bg-convix-50">
+          <Zap className="w-3.5 h-3.5 text-convix-600" />
+          <span className="font-medium text-convix-700">{settings.plan} Plan</span>
+          <span className="ml-auto text-xs text-convix-600 underline cursor-pointer">Upgrade</span>
+        </div>
       </div>
 
-      {/* AI Config */}
-      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
-        <h3 className="font-semibold text-sm text-foreground">AI Configuration</h3>
+      {/* System Prompt */}
+      <div className="bg-white rounded-xl border border-border p-5 space-y-3">
         <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Brand Voice</label>
-          <select value={settings.brandVoice} onChange={e => setSettings(p => ({ ...p, brandVoice: e.target.value }))}
-            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
-            <option value="friendly">Friendly & Warm</option>
-            <option value="professional">Professional</option>
-            <option value="casual">Casual</option>
-            <option value="formal">Formal</option>
-          </select>
+          <h3 className="font-semibold text-sm text-foreground">System Prompt</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Define your agent's personality, role, and behaviour instructions.</p>
         </div>
+        <textarea
+          value={settings.systemPrompt}
+          onChange={e => setSettings(p => ({ ...p, systemPrompt: e.target.value }))}
+          rows={8}
+          className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 font-mono resize-y leading-relaxed"
+          placeholder="You are [agent name], a helpful assistant for [company]. Your role is to..."
+        />
+        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+          <span>💡</span>
+          <span>Tips: Describe role + tone · List what the agent should/shouldn't do · Use {"{{customer_name}}"} for personalisation</span>
+        </div>
+      </div>
+
+      {/* AI Behaviour */}
+      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
+        <h3 className="font-semibold text-sm text-foreground">AI Behaviour</h3>
         <div>
           <label className="text-xs font-medium text-muted-foreground mb-2 block">
             Confidence Threshold: <span className="text-foreground font-semibold">{settings.confidenceThreshold}</span>
@@ -88,20 +124,57 @@ export default function SettingsPage() {
           <label className="text-xs font-medium text-muted-foreground mb-1 block">Handoff Destination</label>
           <select value={settings.handoffDest} onChange={e => setSettings(p => ({ ...p, handoffDest: e.target.value }))}
             className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
+            <option value="live_agent">Live Agent (in-dashboard)</option>
             <option value="zendesk">Zendesk</option>
-            <option value="gorgias">Gorgias</option>
             <option value="freshdesk">Freshdesk</option>
             <option value="email">Email Queue</option>
-            <option value="live_agent">Live Agent (in-dashboard)</option>
           </select>
         </div>
-        <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">High-Value Cart Threshold (USD)</label>
-          <input type="number" value={settings.highValueThreshold}
-            onChange={e => setSettings(p => ({ ...p, highValueThreshold: parseInt(e.target.value) }))}
-            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-          <p className="text-xs text-muted-foreground mt-1">Conversations with carts above this value get extra-careful AI handling.</p>
+      </div>
+
+      {/* Voice Settings */}
+      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm text-foreground">Voice Settings</h3>
+          <button onClick={() => setSettings(p => ({ ...p, voiceEnabled: !p.voiceEnabled }))}
+            className={cn("relative rounded-full transition-colors", settings.voiceEnabled ? "bg-convix-600" : "bg-muted border border-border")}
+            style={{ height: "22px", width: "40px" }}>
+            <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+              settings.voiceEnabled ? "translate-x-5" : "translate-x-0.5"
+            )} />
+          </button>
         </div>
+        {settings.voiceEnabled && (
+          <>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-2 block">TTS Voice</label>
+              <div className="flex gap-2 flex-wrap">
+                {ttsVoices.map(v => (
+                  <button key={v} onClick={() => setSettings(p => ({ ...p, ttsVoice: v }))}
+                    className={cn("px-3 py-1.5 text-xs rounded-lg border transition-colors",
+                      settings.ttsVoice === v ? "bg-convix-600 text-white border-convix-600" : "border-border text-muted-foreground hover:text-foreground"
+                    )}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                Speaking Speed: <span className="text-foreground font-semibold">{settings.speakingSpeed}x</span>
+              </label>
+              <input type="range" min="0.5" max="2.0" step="0.1" value={settings.speakingSpeed}
+                onChange={e => setSettings(p => ({ ...p, speakingSpeed: parseFloat(e.target.value) }))}
+                className="w-full accent-convix-600" />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>Slower</span><span>Faster</span>
+              </div>
+            </div>
+          </>
+        )}
+        {!settings.voiceEnabled && (
+          <p className="text-xs text-muted-foreground">Enable to configure text-to-speech for voice channel deployments.</p>
+        )}
       </div>
 
       {/* Business Hours */}
@@ -121,7 +194,60 @@ export default function SettingsPage() {
               className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Outside hours, Convix AI creates a support ticket and sends the customer an ETA.</p>
+        <p className="text-xs text-muted-foreground">Outside hours, the AI queues messages and responds when back online.</p>
+      </div>
+
+      {/* Custom Fields */}
+      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-sm text-foreground">Custom Conversation Fields</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Pull additional data from your own endpoints and display it in conversation views.</p>
+          </div>
+          <button onClick={addField}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors">
+            <Plus className="w-3 h-3" /> Add Field
+          </button>
+        </div>
+        {customFields.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
+            <p className="text-sm">No custom fields yet</p>
+            <p className="text-xs mt-1">Click "Add Field" to pull data from your own APIs into conversation views.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {customFields.map(f => (
+              <div key={f.id} className="border border-border rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <input value={f.label} onChange={e => updateField(f.id, "label", e.target.value)}
+                    placeholder="Field label"
+                    className="flex-1 px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500" />
+                  <button onClick={() => removeField(f.id)} className="p-1.5 text-muted-foreground hover:text-red-500 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <input value={f.sourceEndpoint} onChange={e => updateField(f.id, "sourceEndpoint", e.target.value)}
+                  placeholder="Source endpoint (e.g. https://api.yourapp.com/users/{{customer_email}})"
+                  className="w-full px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500 font-mono" />
+                <input value={f.field} onChange={e => updateField(f.id, "field", e.target.value)}
+                  placeholder="JSON field path (e.g. data.plan_name)"
+                  className="w-full px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500 font-mono" />
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                    <input type="checkbox" checked={f.showInList} onChange={e => updateField(f.id, "showInList", e.target.checked)}
+                      className="accent-convix-600" />
+                    Show in list
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                    <input type="checkbox" checked={f.showInDetail} onChange={e => updateField(f.id, "showInDetail", e.target.checked)}
+                      className="accent-convix-600" />
+                    Show in detail
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between">
@@ -130,7 +256,7 @@ export default function SettingsPage() {
           <Save className="w-4 h-4" /> Save Settings
         </button>
         <button className="flex items-center gap-2 px-4 py-2.5 text-red-500 text-sm font-medium rounded-lg hover:bg-red-50 transition-colors border border-red-200">
-          <AlertTriangle className="w-3.5 h-3.5" /> Delete Store
+          <AlertTriangle className="w-3.5 h-3.5" /> Delete Agent
         </button>
       </div>
     </div>

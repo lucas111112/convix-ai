@@ -1,11 +1,11 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Search, Filter, MessageSquare } from "lucide-react";
-import { mockConversations, type ConversationStatus, type ChannelType } from "@/lib/mock/data";
+import { Search, MessageSquare, Settings } from "lucide-react";
+import { mockConversations, mockCustomFields, type ConversationStatus, type ChannelType } from "@/lib/mock/data";
 import { formatRelativeTime, cn } from "@/lib/utils";
 
-// TODO: REPLACE WITH API — GET /stores/:id/conversations
+// TODO: REPLACE WITH API — GET /agents/:id/conversations
 
 const statusColors: Record<string, string> = {
   active: "bg-blue-50 text-blue-700 border-blue-100",
@@ -15,10 +15,11 @@ const statusColors: Record<string, string> = {
 };
 
 const channelEmoji: Record<ChannelType, string> = {
-  web: "💬", whatsapp: "💚", instagram: "📸", sms: "📱", messenger: "💙", email: "📧",
+  web: "💬", whatsapp: "💚", instagram: "📸", sms: "📱",
+  messenger: "💙", email: "📧", voice: "📞", slack: "🟨",
 };
 
-const sentimentColor = (s: number) => s > 0.5 ? "bg-green-400" : s > 0 ? "bg-yellow-400" : "bg-red-400";
+const listFields = mockCustomFields.filter(f => f.showInList);
 
 export default function ConversationsPage() {
   const [filter, setFilter] = useState<ConversationStatus | "all">("all");
@@ -37,6 +38,11 @@ export default function ConversationsPage() {
     resolved: mockConversations.filter(c => c.status === "resolved").length,
     abandoned: mockConversations.filter(c => c.status === "abandoned").length,
   };
+
+  // Build grid columns based on custom fields
+  const baseCols = "2fr 1fr 2fr 1fr";
+  const customCols = listFields.map(() => "1fr").join(" ");
+  const gridCols = `${baseCols} ${customCols} 1fr`;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -67,14 +73,16 @@ export default function ConversationsPage() {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-border overflow-hidden">
-        <div className="grid grid-cols-[2fr_1fr_2fr_1fr_1fr_1fr] text-xs font-medium text-muted-foreground border-b border-border px-5 py-2.5 bg-muted/30">
+        <div className="grid text-xs font-medium text-muted-foreground border-b border-border px-5 py-2.5 bg-muted/30"
+          style={{ gridTemplateColumns: gridCols }}>
           <span>Customer</span>
           <span>Channel</span>
           <span>Last Message</span>
           <span>Status</span>
-          <span>Sentiment</span>
+          {listFields.map(f => <span key={f.id}>{f.label}</span>)}
           <span>Updated</span>
         </div>
+
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <MessageSquare className="w-8 h-8 mb-2 opacity-40" />
@@ -84,7 +92,8 @@ export default function ConversationsPage() {
           <div className="divide-y divide-border">
             {filtered.map(conv => (
               <Link key={conv.id} href={`/dashboard/conversations/${conv.id}`}
-                className="grid grid-cols-[2fr_1fr_2fr_1fr_1fr_1fr] items-center px-5 py-3 hover:bg-muted/20 transition-colors text-sm">
+                className="grid items-center px-5 py-3 hover:bg-muted/20 transition-colors text-sm"
+                style={{ gridTemplateColumns: gridCols }}>
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-convix-100 flex items-center justify-center text-xs font-medium text-convix-700 shrink-0">
                     {conv.customerName[0]}
@@ -94,21 +103,28 @@ export default function ConversationsPage() {
                     <div className="text-[10px] text-muted-foreground">{conv.customerEmail}</div>
                   </div>
                 </div>
-                <span className="text-base">{channelEmoji[conv.channel]}</span>
+                <span className="text-base">{channelEmoji[conv.channel] ?? "💬"}</span>
                 <span className="text-xs text-muted-foreground truncate pr-4">{conv.lastMessage}</span>
                 <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium border w-fit", statusColors[conv.status])}>
                   {conv.status.replace("_", " ")}
                 </span>
-                <div className="flex items-center gap-1.5">
-                  <div className={cn("w-2 h-2 rounded-full", sentimentColor(conv.sentiment))} />
-                  <span className="text-xs text-muted-foreground">{(conv.sentiment * 100).toFixed(0)}</span>
-                </div>
+                {listFields.map(f => (
+                  <span key={f.id} className="text-xs text-muted-foreground">—</span>
+                ))}
                 <span className="text-xs text-muted-foreground">{formatRelativeTime(conv.updatedAt)}</span>
               </Link>
             ))}
           </div>
         )}
       </div>
+
+      {/* Empty custom fields nudge */}
+      {listFields.length === 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-muted/40 rounded-xl border border-border text-sm text-muted-foreground">
+          <Settings className="w-4 h-4 shrink-0" />
+          <span>No custom fields configured. <Link href="/dashboard/settings" className="text-convix-600 hover:underline font-medium">Add custom fields in Settings</Link> to show additional data columns here.</span>
+        </div>
+      )}
     </div>
   );
 }

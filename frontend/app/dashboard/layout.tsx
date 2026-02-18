@@ -3,18 +3,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  LayoutDashboard, MessageSquare, BarChart3, Radio, Widget,
+  LayoutDashboard, MessageSquare, BarChart3, Radio, AppWindow,
   BookOpen, Settings, Bot, ChevronLeft, ChevronRight,
-  Bell, Search, LogOut, User, Store
+  Bell, Search, LogOut, User, Layers, Wrench
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Agents", href: "/dashboard/agents", icon: Bot },
+  { label: "Tools", href: "/dashboard/tools", icon: Wrench },
   { label: "Conversations", href: "/dashboard/conversations", icon: MessageSquare, badge: 3 },
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "Channels", href: "/dashboard/channels", icon: Radio },
-  { label: "Widget", href: "/dashboard/widget", icon: Widget },
+  { label: "Widget", href: "/dashboard/widget", icon: AppWindow },
   { label: "Training", href: "/dashboard/training", icon: BookOpen },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
@@ -32,15 +34,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="w-8 h-8 rounded-lg bg-convix-600 flex items-center justify-center shrink-0">
             <Bot className="w-5 h-5 text-white" />
           </div>
-          {!collapsed && <span className="font-bold text-foreground">Convix AI</span>}
+          {!collapsed && <span className="font-bold text-foreground">Axon AI</span>}
         </div>
 
-        {/* Store selector */}
+        {/* Workspace selector */}
         {!collapsed && (
           <div className="px-3 py-2 border-b border-border">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 cursor-pointer hover:bg-muted">
-              <Store className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs text-foreground font-medium truncate">My Store</span>
+              <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs text-foreground font-medium truncate">My Workspace</span>
               <ChevronRight className="w-3 h-3 text-muted-foreground ml-auto" />
             </div>
           </div>
@@ -77,7 +79,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium text-foreground truncate">My Account</div>
-                <div className="text-[10px] text-muted-foreground truncate">Growth Plan</div>
+                <div className="text-[10px] text-muted-foreground truncate">Builder Plan</div>
               </div>
               <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
@@ -112,7 +114,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
             <div className="flex items-center gap-2 ml-2">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse2" />
-              <span className="text-xs text-muted-foreground">12 active</span>
+              <span className="text-xs text-muted-foreground">3 active</span>
             </div>
           </div>
         </header>

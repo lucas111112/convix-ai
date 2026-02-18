@@ -6,8 +6,8 @@ import { Toaster } from "sonner";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Convix AI — Omnichannel AI Sales & Support",
-  description: "Sell smarter. Support faster. On every channel, for every business.",
+  title: "Axon AI — Build AI Agents That Connect to Anything",
+  description: "Build AI agents that connect to anything, deploy everywhere. Web widget, voice, SMS, WhatsApp, and more.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -20,7 +20,7 @@ export default function ChannelsPage() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-xl font-bold text-foreground">Channels</h1>
-        <p className="text-sm text-muted-foreground">Connect Convix AI to every channel your customers use.</p>
+        <p className="text-sm text-muted-foreground">Deploy your agents to every channel — web, mobile, voice, and messaging.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

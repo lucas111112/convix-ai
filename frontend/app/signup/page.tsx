@@ -23,7 +23,7 @@ export default function SignupPage() {
           <div className="w-9 h-9 rounded-xl bg-convix-600 flex items-center justify-center">
             <Bot className="w-5 h-5 text-white" />
           </div>
-          <span className="font-bold text-xl text-foreground">Convix AI</span>
+          <span className="font-bold text-xl text-foreground">Axon AI</span>
         </div>
         <div className="bg-white rounded-2xl border border-border p-8 shadow-sm">
           <h1 className="text-xl font-bold text-foreground mb-1">Start your free trial</h1>

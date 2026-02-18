@@ -5,7 +5,7 @@ import { Upload, Link as LinkIcon, Plus, Trash2, RefreshCw, FileText, Globe, Boo
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// TODO: REPLACE WITH API — GET/POST /stores/:id/training
+// TODO: REPLACE WITH API — GET/POST /agents/:id/training
 
 const typeIcon: Record<string, any> = { FAQ: HelpCircle, POLICY: FileText, PRODUCT_CATALOG: BookOpen, URL: Globe, MANUAL: FileText };
 const typeColor: Record<string, string> = {
@@ -48,7 +48,7 @@ export default function TrainingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">AI Training</h1>
-          <p className="text-sm text-muted-foreground">Teach Convix AI about your products, policies, and FAQs.</p>
+          <p className="text-sm text-muted-foreground">Give your agent knowledge — upload documents, FAQs, policies, or scrape URLs.</p>
         </div>
         <button onClick={retrain} disabled={retraining}
           className="flex items-center gap-2 px-4 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700 disabled:opacity-60 transition-colors">
@@ -72,7 +72,7 @@ export default function TrainingPage() {
             <span className="font-medium text-foreground text-sm">Scrape a URL</span>
           </div>
           <div className="flex gap-2">
-            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://yourstore.com/faq"
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://yourcompany.com/docs"
               className="flex-1 px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             <button onClick={scrapeUrl} className="px-4 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700 transition-colors">
               Scrape
