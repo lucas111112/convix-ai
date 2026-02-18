@@ -59,3 +59,17 @@
 ::-webkit-scrollbar-track { @apply bg-muted; }
 ::-webkit-scrollbar-thumb { @apply bg-muted-foreground/30 rounded-full; }
 ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/50; }
+
+/* Print styles for chart PDF export */
+@media print {
+  body * { visibility: hidden !important; }
+  [data-printable="true"] {
+    visibility: visible !important;
+    position: fixed !important;
+    inset: 0 !important;
+    padding: 24px !important;
+    background: white !important;
+    z-index: 9999 !important;
+  }
+  [data-printable="true"] * { visibility: visible !important; }
+}

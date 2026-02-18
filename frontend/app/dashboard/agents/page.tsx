@@ -1,34 +1,164 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
-import { Plus, Bot, Radio, X, FlaskConical, Trash2, Link2, FileText, Pencil, Mic } from "lucide-react";
-import { mockAgents, mockKnowledgeItems, type Agent, type ChannelType, type KnowledgeItem } from "@/lib/mock/data";
+import {
+  Plus, Bot, X, FlaskConical, Trash2, Link2, FileText, Pencil, Mic,
+  Eye, EyeOff, Upload, HelpCircle, Globe, Map, Play, Tag, Settings,
+  Clock, ChevronRight, ExternalLink, AlertTriangle,
+} from "lucide-react";
+import {
+  mockAgents, mockKnowledgeItems, mockCustomFields,
+  type Agent, type ChannelType, type KnowledgeItem, type CustomField,
+} from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// TODO: REPLACE WITH API — GET /workspaces/:id/agents
+// TODO: REPLACE WITH API — GET/PATCH /agents/:id
+
+// ── Channel definitions ─────────────────────────────────────────────────────
+
+interface CredField { key: string; label: string; type: "text" | "password"; placeholder?: string }
+interface ChannelDef {
+  id: string; label: string; icon: string; description: string;
+  creds: CredField[]; helperLabel?: string; helperUrl?: string;
+  note?: string; requiresVoice?: boolean;
+}
+
+const CHANNEL_DEFS: ChannelDef[] = [
+  { id: "web_widget", label: "Web Widget", icon: "💬", description: "Embed your agent on any website. No credentials needed.", creds: [] },
+  {
+    id: "whatsapp", label: "WhatsApp Business (Meta Cloud API)", icon: "💚",
+    description: "Connect via Meta Cloud API",
+    creds: [
+      { key: "phoneNumberId", label: "Phone Number ID", type: "text" },
+      { key: "accessToken", label: "Access Token", type: "password" },
+      { key: "webhookVerifyToken", label: "Webhook Verify Token", type: "password" },
+    ],
+    helperLabel: "Set up at developers.facebook.com → WhatsApp → Getting Started",
+    helperUrl: "https://developers.facebook.com",
+    note: "Requires a verified Meta Business account.",
+  },
+  {
+    id: "telegram", label: "Telegram Bot", icon: "✈️",
+    description: "Telegram Bot API",
+    creds: [{ key: "botToken", label: "Bot Token", type: "password", placeholder: "123456:ABC-DEF..." }],
+    helperLabel: "Create a bot via @BotFather on Telegram (free, instant)",
+    note: "Free to use. No approval process required.",
+  },
+  {
+    id: "messenger", label: "Facebook Messenger (Meta Graph API)", icon: "💙",
+    description: "Facebook Page messaging",
+    creds: [
+      { key: "pageAccessToken", label: "Page Access Token", type: "password" },
+      { key: "appSecret", label: "App Secret", type: "password" },
+      { key: "webhookVerifyToken", label: "Webhook Verify Token", type: "password" },
+    ],
+    helperLabel: "Set up at developers.facebook.com → Messenger",
+    helperUrl: "https://developers.facebook.com",
+    note: "Requires a Facebook Page and a Meta Developer App.",
+  },
+  {
+    id: "slack", label: "Slack Bot", icon: "🟨",
+    description: "Workspace messaging for B2B and internal use",
+    creds: [
+      { key: "botToken", label: "Bot Token (xoxb-...)", type: "password", placeholder: "xoxb-..." },
+      { key: "signingSecret", label: "Signing Secret", type: "password" },
+    ],
+    helperLabel: "Create a Slack App at api.slack.com/apps",
+    helperUrl: "https://api.slack.com/apps",
+    note: "Install the app to your workspace to get tokens.",
+  },
+  {
+    id: "sms_twilio", label: "SMS via Twilio", icon: "📱",
+    description: "Text messaging via Twilio",
+    creds: [
+      { key: "accountSid", label: "Account SID", type: "text" },
+      { key: "authToken", label: "Auth Token", type: "password" },
+      { key: "phoneNumber", label: "Twilio Phone Number", type: "text", placeholder: "+14155552671" },
+    ],
+    helperLabel: "Get credentials at console.twilio.com",
+    note: "Requires a Twilio account. SMS is billed per message.",
+  },
+  {
+    id: "voice_twilio", label: "Voice Calls via Twilio", icon: "📞",
+    description: "Inbound & outbound voice calls via Twilio Voice",
+    creds: [
+      { key: "accountSid", label: "Account SID", type: "text" },
+      { key: "authToken", label: "Auth Token", type: "password" },
+      { key: "phoneNumber", label: "Twilio Phone Number", type: "text", placeholder: "+14155552671" },
+    ],
+    helperLabel: "Get credentials at console.twilio.com",
+    note: "Uses Twilio Voice. Billed per minute. Configure Twilio webhook: https://api.axon.ai/v1/voice/YOUR_AGENT_ID",
+    requiresVoice: true,
+  },
+];
+
+// ── Knowledge source definitions ────────────────────────────────────────────
+
+type KbType = KnowledgeItem["type"];
+
+const SOURCE_TYPES: { type: KbType; icon: string; label: string; desc: string }[] = [
+  { type: "text", icon: "📝", label: "Text Block", desc: "Paste or type knowledge content" },
+  { type: "url", icon: "🔗", label: "URL / Web page", desc: "Scrape a URL automatically" },
+  { type: "file", icon: "📄", label: "File Upload", desc: "PDF, DOCX, TXT, CSV" },
+  { type: "qa", icon: "❓", label: "Q&A Pair", desc: "Question + Answer entry" },
+  { type: "youtube", icon: "🎥", label: "YouTube Transcript", desc: "Paste a YouTube URL" },
+  { type: "sitemap", icon: "🗺️", label: "Sitemap Crawl", desc: "Paste a sitemap.xml URL" },
+];
+
+const kbTypeIcon: Record<KbType, React.ElementType> = {
+  text: FileText, url: Link2, file: Upload, qa: HelpCircle, youtube: Play, sitemap: Map,
+};
 
 const channelEmoji: Record<ChannelType, string> = {
   web: "💬", whatsapp: "💚", instagram: "📸", sms: "📱",
   messenger: "💙", email: "📧", voice: "📞", slack: "🟨",
 };
 
-interface AgentForm {
-  name: string;
-  systemPrompt: string;
-  voiceEnabled: boolean;
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface ChannelState { enabled: boolean; creds: Record<string, string> }
+
+interface AgentEditForm {
+  name: string; systemPrompt: string; voiceEnabled: boolean;
+  ttsVoice: string; speakingSpeed: number;
+  confidenceThreshold: number; handoffDest: string;
   knowledge: Omit<KnowledgeItem, "id" | "createdAt">[];
+  channels: Record<string, ChannelState>;
+  businessHoursStart: string; businessHoursEnd: string;
+  customFields: CustomField[]; taggingEnabled: boolean; availableTags: string[];
 }
 
 interface KbForm {
-  type: "text" | "url";
-  title: string;
-  content: string;
-  url: string;
+  type: KbType; title: string; content: string; url: string;
+  question: string; answer: string; fileName: string;
 }
 
-const emptyForm = (): AgentForm => ({ name: "", systemPrompt: "", voiceEnabled: false, knowledge: [] });
-const emptyKb = (): KbForm => ({ type: "text", title: "", content: "", url: "" });
+const initChannels = (): Record<string, ChannelState> => {
+  const state: Record<string, ChannelState> = {};
+  for (const ch of CHANNEL_DEFS) {
+    const creds: Record<string, string> = {};
+    for (const c of ch.creds) creds[c.key] = "";
+    state[ch.id] = { enabled: false, creds };
+  }
+  return state;
+};
+
+const emptyEditForm = (agent?: Agent, kb?: KnowledgeItem[]): AgentEditForm => ({
+  name: agent?.name ?? "",
+  systemPrompt: agent?.systemPrompt ?? "",
+  voiceEnabled: agent ? (agent.mode === "voice" || agent.mode === "both") : false,
+  ttsVoice: "Alloy", speakingSpeed: 1.0,
+  confidenceThreshold: 0.65, handoffDest: "live_agent",
+  knowledge: (kb ?? []).map(({ id: _id, createdAt: _c, ...rest }) => rest),
+  channels: initChannels(),
+  businessHoursStart: "09:00", businessHoursEnd: "18:00",
+  customFields: [...mockCustomFields], taggingEnabled: false, availableTags: [],
+});
+
+const emptyKbForm = (): KbForm => ({ type: "text", title: "", content: "", url: "", question: "", answer: "", fileName: "" });
+
+// ── Component ────────────────────────────────────────────────────────────────
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>(mockAgents);
@@ -36,56 +166,59 @@ export default function AgentsPage() {
 
   // Create modal
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState<AgentForm>(emptyForm());
+  const [createName, setCreateName] = useState("");
+  const [createPrompt, setCreatePrompt] = useState("");
+  const [createVoice, setCreateVoice] = useState(false);
 
   // Edit modal
   const [editId, setEditId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<AgentForm>(emptyForm());
+  const [editForm, setEditForm] = useState<AgentEditForm>(emptyEditForm());
+  const [editTab, setEditTab] = useState<"general" | "knowledge" | "channels" | "advanced">("general");
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
 
-  // Knowledge sub-modal (shared for both create & edit)
-  const [showKb, setShowKb] = useState<"create" | "edit" | null>(null);
-  const [kbForm, setKbForm] = useState<KbForm>(emptyKb());
+  // Knowledge sub-modal
+  const [showKbModal, setShowKbModal] = useState<"create" | "edit" | null>(null);
+  const [kbStep, setKbStep] = useState<"pick" | "form">("pick");
+  const [kbType, setKbType] = useState<KbType>("text");
+  const [kbForm, setKbForm] = useState<KbForm>(emptyKbForm());
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── helpers ────────────────────────────────────────────────────────────────
+  // Channel creds show/hide
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const togglePassword = (key: string) => setShowPasswords(p => ({ ...p, [key]: !p[key] }));
+
+  // Tag input
+  const [tagInput, setTagInput] = useState("");
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+
   const openEdit = (agent: Agent) => {
     const agentKb = knowledge[agent.id] ?? [];
     setEditId(agent.id);
-    setEditForm({
-      name: agent.name,
-      systemPrompt: agent.systemPrompt,
-      voiceEnabled: agent.mode === "voice" || agent.mode === "both",
-      knowledge: agentKb.map(({ id: _id, createdAt: _c, ...rest }) => rest),
-    });
+    setEditForm(emptyEditForm(agent, agentKb));
+    setEditTab("general");
+    setDeleteConfirmInput("");
+    setShowPasswords({});
   };
 
   const toggleStatus = (id: string) =>
     setAgents(prev => prev.map(a => a.id === id ? { ...a, status: a.status === "active" ? "inactive" : "active" } : a));
 
-  // ── create ─────────────────────────────────────────────────────────────────
   const createAgent = () => {
-    if (!createForm.name.trim()) { toast.error("Agent name is required"); return; }
-    if (!createForm.systemPrompt.trim()) { toast.error("System prompt is required"); return; }
+    if (!createName.trim()) { toast.error("Agent name is required"); return; }
+    if (!createPrompt.trim()) { toast.error("System prompt is required"); return; }
     const id = `agent_${Date.now()}`;
     const newAgent: Agent = {
-      id, name: createForm.name, avatar: "🤖",
-      systemPrompt: createForm.systemPrompt,
-      status: "inactive", channels: [],
-      mode: createForm.voiceEnabled ? "both" : "text",
+      id, name: createName, avatar: "🤖", systemPrompt: createPrompt,
+      status: "inactive", channels: [], mode: createVoice ? "both" : "text",
       toolIds: [], createdAt: new Date().toISOString().split("T")[0],
     };
     setAgents(prev => [...prev, newAgent]);
-    if (createForm.knowledge.length > 0) {
-      setKnowledge(prev => ({
-        ...prev,
-        [id]: createForm.knowledge.map((k, i) => ({ ...k, id: `kb_${Date.now()}_${i}`, createdAt: new Date().toISOString().split("T")[0] })),
-      }));
-    }
-    setShowCreate(false);
-    setCreateForm(emptyForm());
+    setShowCreate(false); setCreateName(""); setCreatePrompt(""); setCreateVoice(false);
     toast.success(`Agent "${newAgent.name}" created!`);
   };
 
-  // ── save edit ──────────────────────────────────────────────────────────────
   const saveEdit = () => {
     if (!editId) return;
     if (!editForm.name.trim()) { toast.error("Agent name is required"); return; }
@@ -99,99 +232,111 @@ export default function AgentsPage() {
       [editId]: editForm.knowledge.map((k, i) => ({ ...k, id: `kb_${Date.now()}_${i}`, createdAt: new Date().toISOString().split("T")[0] })),
     }));
     setEditId(null);
-    toast.success("Agent updated!");
+    toast.success("Agent saved!");
   };
 
-  // ── knowledge helpers ──────────────────────────────────────────────────────
+  const deleteAgent = () => {
+    if (!editId) return;
+    const agent = agents.find(a => a.id === editId);
+    if (deleteConfirmInput !== agent?.name) { toast.error("Name doesn't match"); return; }
+    setAgents(prev => prev.filter(a => a.id !== editId));
+    setEditId(null);
+    toast.success(`Agent "${agent?.name}" deleted`);
+  };
+
+  // ── Knowledge helpers ──────────────────────────────────────────────────
+
+  const extractYoutubeId = (url: string) => {
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+    return match?.[1] ?? null;
+  };
+
+  const getDomain = (url: string) => { try { return new URL(url).hostname; } catch { return url; } };
+
+  const handleFileSelect = (file: File) => {
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["pdf", "docx", "txt", "csv"].includes(ext)) {
+      toast.error("Unsupported file type. Use PDF, DOCX, TXT, or CSV."); return;
+    }
+    setKbForm(p => ({ ...p, fileName: file.name, title: file.name }));
+    toast.success(`"${file.name}" selected`);
+  };
+
+  const buildKbItem = (): Omit<KnowledgeItem, "id" | "createdAt"> | null => {
+    switch (kbType) {
+      case "text":
+        if (!kbForm.title.trim() || !kbForm.content.trim()) { toast.error("Title and content are required"); return null; }
+        return { type: "text", title: kbForm.title, content: kbForm.content };
+      case "url":
+        if (!kbForm.title.trim() || !kbForm.url.trim()) { toast.error("Title and URL are required"); return null; }
+        return { type: "url", title: kbForm.title, url: kbForm.url };
+      case "file":
+        if (!kbForm.fileName) { toast.error("Please select a file"); return null; }
+        return { type: "file", title: kbForm.title || kbForm.fileName, fileName: kbForm.fileName };
+      case "qa": {
+        if (!kbForm.question.trim() || !kbForm.answer.trim()) { toast.error("Question and answer are required"); return null; }
+        const title = kbForm.question.slice(0, 55) + (kbForm.question.length > 55 ? "…" : "");
+        return { type: "qa", title, question: kbForm.question, answer: kbForm.answer };
+      }
+      case "youtube": {
+        const videoId = extractYoutubeId(kbForm.url);
+        if (!videoId) { toast.error("Invalid YouTube URL"); return null; }
+        return { type: "youtube", title: `YouTube: ${videoId}`, url: kbForm.url };
+      }
+      case "sitemap": {
+        if (!kbForm.url.trim()) { toast.error("Sitemap URL is required"); return null; }
+        const domain = getDomain(kbForm.url);
+        const n = Math.floor(Math.random() * 33) + 8;
+        return { type: "sitemap", title: `${domain} sitemap (${n} pages)`, url: kbForm.url };
+      }
+    }
+  };
+
   const addKbItem = (target: "create" | "edit") => {
-    if (!kbForm.title.trim()) { toast.error("Title is required"); return; }
-    if (kbForm.type === "text" && !kbForm.content.trim()) { toast.error("Content is required"); return; }
-    if (kbForm.type === "url" && !kbForm.url.trim()) { toast.error("URL is required"); return; }
-    const item: Omit<KnowledgeItem, "id" | "createdAt"> = {
-      type: kbForm.type, title: kbForm.title,
-      ...(kbForm.type === "text" ? { content: kbForm.content } : { url: kbForm.url }),
-    };
-    if (target === "create") setCreateForm(p => ({ ...p, knowledge: [...p.knowledge, item] }));
-    else setEditForm(p => ({ ...p, knowledge: [...p.knowledge, item] }));
-    setKbForm(emptyKb());
-    setShowKb(null);
+    const item = buildKbItem();
+    if (!item) return;
+    if (kbType === "file") toast.success("File uploaded and indexed!");
+    if (kbType === "youtube") toast.success("Transcript extracted!");
+    if (kbType === "sitemap") toast.success("Sitemap crawled!");
+    if (target === "edit") setEditForm(p => ({ ...p, knowledge: [...p.knowledge, item] }));
+    setKbForm(emptyKbForm()); setKbStep("pick"); setShowKbModal(null);
   };
 
-  const removeKbItem = (target: "create" | "edit", idx: number) => {
-    if (target === "create") setCreateForm(p => ({ ...p, knowledge: p.knowledge.filter((_, i) => i !== idx) }));
-    else setEditForm(p => ({ ...p, knowledge: p.knowledge.filter((_, i) => i !== idx) }));
+  const removeKbItem = (target: "edit", idx: number) => {
+    if (target === "edit") setEditForm(p => ({ ...p, knowledge: p.knowledge.filter((_, i) => i !== idx) }));
   };
 
-  // ── shared sub-components ──────────────────────────────────────────────────
-  const AgentForm = ({ form, onChange, onAddKb, onRemoveKb, target }: {
-    form: AgentForm;
-    onChange: (patch: Partial<AgentForm>) => void;
-    onAddKb: () => void;
-    onRemoveKb: (i: number) => void;
-    target: "create" | "edit";
-  }) => (
-    <div className="px-6 py-5 space-y-4 overflow-y-auto">
-      <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
-        <input value={form.name} onChange={e => onChange({ name: e.target.value })}
-          placeholder="e.g. Aria, SupportBot, DataHelper"
-          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-      </div>
+  const setChannelEnabled = (id: string, val: boolean) =>
+    setEditForm(p => ({ ...p, channels: { ...p.channels, [id]: { ...p.channels[id], enabled: val } } }));
 
-      <div>
-        <label className="text-xs font-medium text-muted-foreground mb-1 block">System Prompt</label>
-        <textarea value={form.systemPrompt} onChange={e => onChange({ systemPrompt: e.target.value })}
-          rows={5} placeholder="You are [name], a helpful assistant for [purpose]. Be concise, friendly, and professional..."
-          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none font-mono" />
-      </div>
+  const setChannelCred = (id: string, key: string, val: string) =>
+    setEditForm(p => ({ ...p, channels: { ...p.channels, [id]: { ...p.channels[id], creds: { ...p.channels[id].creds, [key]: val } } } }));
 
-      {/* Voice toggle */}
-      <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border bg-muted/20">
-        <div className="flex items-center gap-2">
-          <Mic className="w-3.5 h-3.5 text-muted-foreground" />
-          <div>
-            <div className="text-xs font-medium text-foreground">Voice / Call mode</div>
-            <div className="text-[10px] text-muted-foreground">Enable for voice & call channel deployments</div>
-          </div>
-        </div>
-        <button onClick={() => onChange({ voiceEnabled: !form.voiceEnabled })}
-          className={cn("relative rounded-full transition-colors shrink-0", form.voiceEnabled ? "bg-convix-600" : "bg-muted border border-border")}
-          style={{ height: "22px", width: "40px" }}>
-          <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-            form.voiceEnabled ? "translate-x-5" : "translate-x-0.5"
-          )} />
-        </button>
-      </div>
+  const addCustomField = () =>
+    setEditForm(p => ({ ...p, customFields: [...p.customFields, { id: `cf_${Date.now()}`, label: "New Field", sourceEndpoint: "", field: "", showInList: true, showInDetail: true }] }));
 
-      {/* Knowledge */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-medium text-muted-foreground">Knowledge</label>
-          <button onClick={onAddKb} className="flex items-center gap-1 text-xs text-convix-600 hover:text-convix-700 font-medium">
-            <Plus className="w-3 h-3" /> Add knowledge
-          </button>
-        </div>
-        {form.knowledge.length === 0 ? (
-          <div className="text-xs text-muted-foreground py-3 text-center border border-dashed border-border rounded-lg">
-            No knowledge added yet. Click "Add knowledge" to add text blocks or URLs.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {form.knowledge.map((k, i) => (
-              <div key={i} className="flex items-center gap-2 px-3 py-2 bg-muted/40 rounded-lg border border-border">
-                {k.type === "url" ? <Link2 className="w-3.5 h-3.5 text-convix-600 shrink-0" /> : <FileText className="w-3.5 h-3.5 text-convix-600 shrink-0" />}
-                <span className="text-xs text-foreground font-medium flex-1 truncate">{k.title}</span>
-                <span className="text-[10px] text-muted-foreground">{k.type}</span>
-                <button onClick={() => onRemoveKb(i)} className="p-0.5 text-muted-foreground hover:text-red-500 transition-colors">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const removeCustomField = (id: string) =>
+    setEditForm(p => ({ ...p, customFields: p.customFields.filter(f => f.id !== id) }));
+
+  const updateCustomField = (id: string, key: keyof CustomField, val: unknown) =>
+    setEditForm(p => ({ ...p, customFields: p.customFields.map(f => f.id === id ? { ...f, [key]: val } : f) }));
+
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (!t || editForm.availableTags.includes(t)) return;
+    setEditForm(p => ({ ...p, availableTags: [...p.availableTags, t] }));
+    setTagInput("");
+  };
+
+  const removeTag = (tag: string) =>
+    setEditForm(p => ({ ...p, availableTags: p.availableTags.filter(t => t !== tag) }));
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  const currentAgent = agents.find(a => a.id === editId);
+
+  const TABS = ["general", "knowledge", "channels", "advanced"] as const;
+  type EditTab = typeof TABS[number];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -215,7 +360,6 @@ export default function AgentsPage() {
             <div key={agent.id} className={cn("bg-white rounded-xl border p-5 flex flex-col gap-4 transition-all hover:shadow-sm",
               agent.status === "active" ? "border-convix-200" : "border-border"
             )}>
-              {/* Header */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="font-semibold text-foreground text-sm truncate">{agent.name}</div>
@@ -226,7 +370,7 @@ export default function AgentsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button onClick={() => openEdit(agent)}
+                  <button onClick={() => openEdit(agent)} title="Edit agent"
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
@@ -240,10 +384,8 @@ export default function AgentsPage() {
                 </div>
               </div>
 
-              {/* System prompt preview */}
               <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{agent.systemPrompt}</p>
 
-              {/* Channels */}
               <div className="flex flex-wrap gap-1.5">
                 {agent.channels.map(ch => (
                   <span key={ch} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
@@ -253,36 +395,30 @@ export default function AgentsPage() {
                 {agent.channels.length === 0 && <span className="text-xs text-muted-foreground italic">No channels connected</span>}
               </div>
 
-              {/* Knowledge pills */}
               {agentKb.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {agentKb.map(kb => (
-                    <span key={kb.id} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-convix-50 text-convix-700 border border-convix-100">
-                      {kb.type === "url" ? <Link2 className="w-2.5 h-2.5" /> : <FileText className="w-2.5 h-2.5" />}
-                      {kb.title}
-                    </span>
-                  ))}
+                  {agentKb.map(kb => {
+                    const KbIcon = kbTypeIcon[kb.type] ?? FileText;
+                    return (
+                      <span key={kb.id} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-convix-50 text-convix-700 border border-convix-100">
+                        <KbIcon className="w-2.5 h-2.5" />{kb.title}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
-              {/* Footer */}
               <div className="flex items-center gap-2 border-t border-border pt-3 mt-auto">
                 <Link href={`/dashboard/agents/${agent.id}/test`}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors">
                   <FlaskConical className="w-3.5 h-3.5" /> Test Agent
                 </Link>
-                <div className="flex items-center gap-2 ml-auto text-xs text-muted-foreground">
-                  <Radio className="w-3 h-3" />
-                  <span>{agent.channels.length} ch.</span>
-                  <span>·</span>
-                  <span>{agent.createdAt}</span>
-                </div>
+                <span className="ml-auto text-[10px] text-muted-foreground">{agent.createdAt}</span>
               </div>
             </div>
           );
         })}
 
-        {/* Create placeholder card */}
         <button onClick={() => setShowCreate(true)}
           className="flex flex-col items-center justify-center gap-3 bg-muted/30 border border-dashed border-border rounded-xl p-8 hover:bg-muted/50 hover:border-convix-300 transition-all text-muted-foreground hover:text-convix-600 group">
           <div className="w-12 h-12 rounded-xl bg-muted group-hover:bg-convix-50 flex items-center justify-center transition-colors">
@@ -296,22 +432,41 @@ export default function AgentsPage() {
       {/* ── Create Modal ──────────────────────────────────────────────────────── */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <h2 className="font-semibold text-foreground">Create Agent</h2>
-              <button onClick={() => { setShowCreate(false); setCreateForm(emptyForm()); }} className="p-1.5 rounded-lg hover:bg-muted">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
+              <button onClick={() => setShowCreate(false)} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-4 h-4 text-muted-foreground" /></button>
             </div>
-            <AgentForm
-              form={createForm}
-              onChange={patch => setCreateForm(p => ({ ...p, ...patch }))}
-              onAddKb={() => { setKbForm(emptyKb()); setShowKb("create"); }}
-              onRemoveKb={i => removeKbItem("create", i)}
-              target="create"
-            />
-            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
-              <button onClick={() => { setShowCreate(false); setCreateForm(emptyForm()); }} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
+                <input value={createName} onChange={e => setCreateName(e.target.value)}
+                  placeholder="e.g. Aria, SupportBot, DataHelper"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">System Prompt</label>
+                <textarea value={createPrompt} onChange={e => setCreatePrompt(e.target.value)} rows={4}
+                  placeholder="You are [name], a helpful assistant for [purpose]..."
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none font-mono" />
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <Mic className="w-3.5 h-3.5 text-muted-foreground" />
+                  <div>
+                    <div className="text-xs font-medium text-foreground">Voice / Call mode</div>
+                    <div className="text-[10px] text-muted-foreground">Enable for voice & call deployments</div>
+                  </div>
+                </div>
+                <button onClick={() => setCreateVoice(p => !p)}
+                  className={cn("relative rounded-full transition-colors shrink-0", createVoice ? "bg-convix-600" : "bg-muted border border-border")}
+                  style={{ height: "22px", width: "40px" }}>
+                  <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform", createVoice ? "translate-x-5" : "translate-x-0.5")} />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border">
+              <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
               <button onClick={createAgent} className="flex items-center gap-2 px-4 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700">
                 <Bot className="w-4 h-4" /> Create Agent
               </button>
@@ -320,91 +475,535 @@ export default function AgentsPage() {
         </div>
       )}
 
-      {/* ── Edit Modal ────────────────────────────────────────────────────────── */}
-      {editId && (
+      {/* ── Edit Modal (4 tabs) ───────────────────────────────────────────────── */}
+      {editId && currentAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+            {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-              <h2 className="font-semibold text-foreground">Edit Agent</h2>
-              <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg hover:bg-muted">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
+              <h2 className="font-semibold text-foreground">Edit: {currentAgent.name}</h2>
+              <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-4 h-4 text-muted-foreground" /></button>
             </div>
-            <AgentForm
-              form={editForm}
-              onChange={patch => setEditForm(p => ({ ...p, ...patch }))}
-              onAddKb={() => { setKbForm(emptyKb()); setShowKb("edit"); }}
-              onRemoveKb={i => removeKbItem("edit", i)}
-              target="edit"
-            />
-            <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
-              <button
-                onClick={() => { setAgents(prev => prev.filter(a => a.id !== editId)); setEditId(null); toast.success("Agent deleted"); }}
-                className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 transition-colors">
-                <Trash2 className="w-3.5 h-3.5" /> Delete agent
-              </button>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setEditId(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
-                <button onClick={saveEdit} className="px-4 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700">Save changes</button>
-              </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-border shrink-0">
+              {TABS.map(tab => (
+                <button key={tab} onClick={() => setEditTab(tab as EditTab)}
+                  className={cn("px-5 py-2.5 text-xs font-medium capitalize transition-colors border-b-2",
+                    editTab === tab ? "border-convix-600 text-convix-700 bg-convix-50/50" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                  )}>{tab}</button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="flex-1 overflow-y-auto">
+
+              {/* ── Tab 1: General ───────────────────────────────────────── */}
+              {editTab === "general" && (
+                <div className="px-6 py-5 space-y-5">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
+                    <input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="e.g. Aria, SupportBot"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">System Prompt</label>
+                    <textarea value={editForm.systemPrompt} onChange={e => setEditForm(p => ({ ...p, systemPrompt: e.target.value }))}
+                      rows={6} placeholder="You are [name], a helpful assistant..."
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none font-mono" />
+                  </div>
+
+                  {/* Voice toggle */}
+                  <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <Mic className="w-3.5 h-3.5 text-muted-foreground" />
+                      <div>
+                        <div className="text-xs font-medium text-foreground">Voice / Call mode</div>
+                        <div className="text-[10px] text-muted-foreground">Enable for voice & call channel deployments</div>
+                      </div>
+                    </div>
+                    <button onClick={() => setEditForm(p => ({ ...p, voiceEnabled: !p.voiceEnabled }))}
+                      className={cn("relative rounded-full transition-colors shrink-0", editForm.voiceEnabled ? "bg-convix-600" : "bg-muted border border-border")}
+                      style={{ height: "22px", width: "40px" }}>
+                      <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform", editForm.voiceEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                    </button>
+                  </div>
+
+                  {/* TTS settings (voice only) */}
+                  {editForm.voiceEnabled && (
+                    <div className="space-y-3 pl-3 border-l-2 border-convix-200">
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-1 block">TTS Voice</label>
+                        <select value={editForm.ttsVoice} onChange={e => setEditForm(p => ({ ...p, ttsVoice: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
+                          {["Alloy", "Echo", "Fable", "Onyx", "Nova", "Shimmer"].map(v => (
+                            <option key={v} value={v}>{v}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                          Speaking Speed: <span className="text-foreground font-semibold">{editForm.speakingSpeed}×</span>
+                        </label>
+                        <input type="range" min="0.5" max="2.0" step="0.1" value={editForm.speakingSpeed}
+                          onChange={e => setEditForm(p => ({ ...p, speakingSpeed: parseFloat(e.target.value) }))}
+                          className="w-full accent-convix-600" />
+                        <div className="flex justify-between text-xs text-muted-foreground mt-1"><span>0.5× slow</span><span>2.0× fast</span></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Confidence threshold */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                      Confidence Threshold: <span className="text-foreground font-semibold">{editForm.confidenceThreshold}</span>
+                    </label>
+                    <input type="range" min="0.3" max="0.9" step="0.05" value={editForm.confidenceThreshold}
+                      onChange={e => setEditForm(p => ({ ...p, confidenceThreshold: parseFloat(e.target.value) }))}
+                      className="w-full accent-convix-600" />
+                    <div className="flex justify-between text-xs text-muted-foreground mt-1"><span>More AI answers</span><span>More human handoffs</span></div>
+                    <p className="text-xs text-muted-foreground mt-1.5">AI hands off when confidence drops below this value.</p>
+                  </div>
+
+                  {/* Handoff destination */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Handoff Destination</label>
+                    <select value={editForm.handoffDest} onChange={e => setEditForm(p => ({ ...p, handoffDest: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
+                      <option value="live_agent">Live Agent (in-dashboard)</option>
+                      <option value="zendesk">Zendesk</option>
+                      <option value="freshdesk">Freshdesk</option>
+                      <option value="email">Email Queue</option>
+                    </select>
+                  </div>
+
+                  {/* Danger zone */}
+                  <div className="border border-red-200 rounded-xl p-4 space-y-3 bg-red-50/40">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                      <span className="text-sm font-semibold text-red-700">Danger Zone</span>
+                    </div>
+                    <p className="text-xs text-red-600">Type the agent name <strong>{currentAgent.name}</strong> to confirm deletion.</p>
+                    <input value={deleteConfirmInput} onChange={e => setDeleteConfirmInput(e.target.value)}
+                      placeholder={currentAgent.name}
+                      className="w-full px-3 py-2 text-sm border border-red-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 bg-white" />
+                    <button onClick={deleteAgent}
+                      disabled={deleteConfirmInput !== currentAgent.name}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Agent Permanently
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tab 2: Knowledge ─────────────────────────────────────── */}
+              {editTab === "knowledge" && (
+                <div className="px-6 py-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Knowledge Sources</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">What your agent knows and can reference.</p>
+                    </div>
+                    <button onClick={() => { setKbStep("pick"); setKbForm(emptyKbForm()); setShowKbModal("edit"); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors">
+                      <Plus className="w-3 h-3" /> Add Knowledge
+                    </button>
+                  </div>
+                  {editForm.knowledge.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground border border-dashed border-border rounded-xl">
+                      <p className="text-sm">No knowledge added yet.</p>
+                      <p className="text-xs mt-1">Click "Add Knowledge" to get started.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {editForm.knowledge.map((k, i) => {
+                        const KbIcon = kbTypeIcon[k.type] ?? FileText;
+                        const src = SOURCE_TYPES.find(s => s.type === k.type);
+                        return (
+                          <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-muted/40 rounded-lg border border-border">
+                            <span className="text-base shrink-0">{src?.icon ?? "📄"}</span>
+                            <KbIcon className="w-3.5 h-3.5 text-convix-600 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-foreground font-medium truncate">{k.title}</div>
+                              <div className="text-[10px] text-muted-foreground">{src?.label ?? k.type}</div>
+                            </div>
+                            <button onClick={() => removeKbItem("edit", i)}
+                              className="p-1 text-muted-foreground hover:text-red-500 transition-colors shrink-0">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Tab 3: Channels ──────────────────────────────────────── */}
+              {editTab === "channels" && (
+                <div className="px-6 py-5 space-y-3">
+                  <div className="mb-2">
+                    <h3 className="text-sm font-semibold text-foreground">Connected Channels</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Toggle a channel on to see its configuration.</p>
+                  </div>
+                  {CHANNEL_DEFS.filter(ch => !ch.requiresVoice || editForm.voiceEnabled).map(ch => {
+                    const state = editForm.channels[ch.id];
+                    return (
+                      <div key={ch.id} className={cn("border rounded-xl overflow-hidden transition-all",
+                        state?.enabled ? "border-convix-200" : "border-border"
+                      )}>
+                        {/* Channel row */}
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <span className="text-xl shrink-0">{ch.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-foreground">{ch.label}</div>
+                            <div className="text-xs text-muted-foreground truncate">{ch.description}</div>
+                          </div>
+                          <button onClick={() => {
+                            setChannelEnabled(ch.id, !state?.enabled);
+                            if (!state?.enabled && ch.id !== "web_widget") toast.success(`${ch.label} enabled`);
+                          }}
+                            className={cn("relative rounded-full transition-colors shrink-0", state?.enabled ? "bg-convix-600" : "bg-muted border border-border")}
+                            style={{ height: "22px", width: "40px" }}>
+                            <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+                              state?.enabled ? "translate-x-5" : "translate-x-0.5"
+                            )} />
+                          </button>
+                        </div>
+
+                        {/* Expanded config */}
+                        {state?.enabled && (
+                          <div className="px-4 pb-4 border-t border-border bg-muted/20 space-y-3 pt-3">
+                            {ch.id === "web_widget" ? (
+                              <div className="flex items-center gap-2 text-xs text-convix-700">
+                                <Globe className="w-3.5 h-3.5" />
+                                <span>Embed your agent on any website —</span>
+                                <a href="/dashboard/widget" className="underline font-medium flex items-center gap-0.5">
+                                  go to Widget Builder <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </div>
+                            ) : (
+                              <>
+                                {ch.creds.map(c => {
+                                  const pk = `${ch.id}_${c.key}`;
+                                  const shown = showPasswords[pk];
+                                  return (
+                                    <div key={c.key}>
+                                      <label className="text-xs font-medium text-muted-foreground mb-1 block">{c.label}</label>
+                                      <div className="relative">
+                                        <input
+                                          type={c.type === "password" && !shown ? "password" : "text"}
+                                          value={state.creds[c.key] ?? ""}
+                                          onChange={e => setChannelCred(ch.id, c.key, e.target.value)}
+                                          placeholder={c.placeholder}
+                                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white pr-9" />
+                                        {c.type === "password" && (
+                                          <button type="button" onClick={() => togglePassword(pk)}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                                            {shown ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {ch.helperLabel && (
+                                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <ChevronRight className="w-3 h-3 shrink-0" /> {ch.helperLabel}
+                                  </p>
+                                )}
+                                {ch.note && (
+                                  <p className="text-[10px] text-muted-foreground bg-muted/40 px-3 py-2 rounded-lg">{ch.note}</p>
+                                )}
+                                <button onClick={() => toast.success(`${ch.label} connected!`)}
+                                  className="px-3 py-1.5 text-xs bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
+                                  Connect channel
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── Tab 4: Advanced ──────────────────────────────────────── */}
+              {editTab === "advanced" && (
+                <div className="px-6 py-5 space-y-6">
+                  {/* Business hours */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-muted-foreground" />
+                      <h3 className="text-sm font-semibold text-foreground">Business Hours</h3>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-1 block">Opens at</label>
+                        <input type="time" value={editForm.businessHoursStart}
+                          onChange={e => setEditForm(p => ({ ...p, businessHoursStart: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground mb-1 block">Closes at</label>
+                        <input type="time" value={editForm.businessHoursEnd}
+                          onChange={e => setEditForm(p => ({ ...p, businessHoursEnd: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Outside hours, the AI queues messages and responds when back online.</p>
+                  </div>
+
+                  {/* Custom fields */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Settings className="w-4 h-4 text-muted-foreground" />
+                        <h3 className="text-sm font-semibold text-foreground">Custom Conversation Fields</h3>
+                      </div>
+                      <button onClick={addCustomField}
+                        className="flex items-center gap-1 text-xs text-convix-600 hover:text-convix-700 font-medium">
+                        <Plus className="w-3 h-3" /> Add Field
+                      </button>
+                    </div>
+                    {editForm.customFields.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-3 text-center border border-dashed border-border rounded-lg">No custom fields. Click "Add Field" to pull data from your own APIs.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {editForm.customFields.map(f => (
+                          <div key={f.id} className="border border-border rounded-lg p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input value={f.label} onChange={e => updateCustomField(f.id, "label", e.target.value)}
+                                placeholder="Field label"
+                                className="flex-1 px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500" />
+                              <button onClick={() => removeCustomField(f.id)} className="p-1 text-muted-foreground hover:text-red-500">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            <input value={f.sourceEndpoint} onChange={e => updateCustomField(f.id, "sourceEndpoint", e.target.value)}
+                              placeholder="Source endpoint (e.g. https://api.yourapp.com/users/{{customer_email}})"
+                              className="w-full px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500 font-mono" />
+                            <input value={f.field} onChange={e => updateCustomField(f.id, "field", e.target.value)}
+                              placeholder="JSON field path (e.g. data.plan_name)"
+                              className="w-full px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500 font-mono" />
+                            <div className="flex items-center gap-4">
+                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                                <input type="checkbox" checked={f.showInList} onChange={e => updateCustomField(f.id, "showInList", e.target.checked)} className="accent-convix-600" />
+                                Show in list
+                              </label>
+                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                                <input type="checkbox" checked={f.showInDetail} onChange={e => updateCustomField(f.id, "showInDetail", e.target.checked)} className="accent-convix-600" />
+                                Show in detail
+                              </label>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Conversation tagging */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Tag className="w-4 h-4 text-muted-foreground" />
+                        <div>
+                          <h3 className="text-sm font-semibold text-foreground">Conversation Tagging</h3>
+                          <p className="text-xs text-muted-foreground">Auto-categorise conversations using a lightweight model.</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setEditForm(p => ({ ...p, taggingEnabled: !p.taggingEnabled }))}
+                        className={cn("relative rounded-full transition-colors shrink-0", editForm.taggingEnabled ? "bg-convix-600" : "bg-muted border border-border")}
+                        style={{ height: "22px", width: "40px" }}>
+                        <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform", editForm.taggingEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                      </button>
+                    </div>
+                    {editForm.taggingEnabled && (
+                      <div className="space-y-3 pl-3 border-l-2 border-convix-200">
+                        <div className="flex flex-wrap gap-2">
+                          {editForm.availableTags.map(tag => (
+                            <span key={tag} className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-convix-50 text-convix-700 border border-convix-200">
+                              {tag}
+                              <button onClick={() => removeTag(tag)} className="text-convix-400 hover:text-convix-700"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                          {editForm.availableTags.length === 0 && <span className="text-xs text-muted-foreground italic">No tags yet.</span>}
+                        </div>
+                        <div className="flex gap-2">
+                          <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && addTag()}
+                            placeholder="e.g. billing, onboarding, bug-report"
+                            className="flex-1 px-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                          <button onClick={addTag} className="px-3 py-1.5 text-sm bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">Add</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
+              <button onClick={() => setEditId(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+              <button onClick={saveEdit} className="px-4 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700">Save changes</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Knowledge sub-modal (shared) ──────────────────────────────────────── */}
-      {showKb && (
+      {/* ── Knowledge sub-modal ───────────────────────────────────────────────── */}
+      {showKbModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-sm">
+          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-              <h3 className="font-semibold text-sm text-foreground">Add Knowledge</h3>
-              <button onClick={() => setShowKb(null)} className="p-1 rounded-md hover:bg-muted">
+              <h3 className="font-semibold text-sm text-foreground">
+                {kbStep === "pick" ? "Add Knowledge" : `Add: ${SOURCE_TYPES.find(s => s.type === kbType)?.label}`}
+              </h3>
+              <button onClick={() => { setShowKbModal(null); setKbStep("pick"); }} className="p-1 rounded-md hover:bg-muted">
                 <X className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
-            <div className="px-5 py-4 space-y-3">
-              <div className="flex gap-2">
-                {(["text", "url"] as const).map(t => (
-                  <button key={t} onClick={() => setKbForm(p => ({ ...p, type: t }))}
-                    className={cn("flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors",
-                      kbForm.type === t ? "bg-convix-600 text-white border-convix-600" : "border-border text-muted-foreground hover:text-foreground"
-                    )}>
-                    {t === "text" ? "Text Block" : "URL"}
+
+            {kbStep === "pick" ? (
+              <div className="p-5">
+                <div className="grid grid-cols-2 gap-2">
+                  {SOURCE_TYPES.map(s => (
+                    <button key={s.type}
+                      onClick={() => { setKbType(s.type); setKbStep("form"); setKbForm(emptyKbForm()); }}
+                      className="flex items-start gap-3 p-3 rounded-xl border border-border hover:border-convix-300 hover:bg-convix-50 transition-all text-left group">
+                      <span className="text-xl shrink-0">{s.icon}</span>
+                      <div>
+                        <div className="text-xs font-semibold text-foreground group-hover:text-convix-700">{s.label}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{s.desc}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="px-5 py-4 space-y-3">
+                {/* Back button */}
+                <button onClick={() => setKbStep("pick")} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                  ← Back
+                </button>
+
+                {kbType === "text" && (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Title</label>
+                      <input value={kbForm.title} onChange={e => setKbForm(p => ({ ...p, title: e.target.value }))}
+                        placeholder="e.g. Company Overview"
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Content</label>
+                      <textarea value={kbForm.content} onChange={e => setKbForm(p => ({ ...p, content: e.target.value }))}
+                        rows={5} placeholder="Paste your knowledge content here..."
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
+                    </div>
+                  </>
+                )}
+
+                {kbType === "url" && (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Title</label>
+                      <input value={kbForm.title} onChange={e => setKbForm(p => ({ ...p, title: e.target.value }))}
+                        placeholder="e.g. API Documentation"
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">URL</label>
+                      <input value={kbForm.url} onChange={e => setKbForm(p => ({ ...p, url: e.target.value }))}
+                        placeholder="https://docs.example.com/..."
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    </div>
+                  </>
+                )}
+
+                {kbType === "file" && (
+                  <>
+                    <div
+                      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={e => {
+                        e.preventDefault(); setDragOver(false);
+                        const file = e.dataTransfer.files[0];
+                        if (file) handleFileSelect(file);
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn("border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors",
+                        dragOver ? "border-convix-400 bg-convix-50" : "border-border hover:border-convix-300"
+                      )}>
+                      <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm font-medium text-foreground">Drop file here or click to browse</p>
+                      <p className="text-xs text-muted-foreground mt-1">.pdf, .docx, .txt, .csv</p>
+                      {kbForm.fileName && (
+                        <p className="text-xs font-medium text-convix-600 mt-2 bg-convix-50 px-2 py-1 rounded-full inline-block">{kbForm.fileName}</p>
+                      )}
+                    </div>
+                    <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt,.csv" className="hidden"
+                      onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }} />
+                  </>
+                )}
+
+                {kbType === "qa" && (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Question</label>
+                      <input value={kbForm.question} onChange={e => setKbForm(p => ({ ...p, question: e.target.value }))}
+                        placeholder="e.g. How do I reset my password?"
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Answer</label>
+                      <textarea value={kbForm.answer} onChange={e => setKbForm(p => ({ ...p, answer: e.target.value }))}
+                        rows={4} placeholder="Provide a complete answer..."
+                        className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
+                    </div>
+                  </>
+                )}
+
+                {(kbType === "youtube") && (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">YouTube URL</label>
+                    <input value={kbForm.url} onChange={e => setKbForm(p => ({ ...p, url: e.target.value }))}
+                      placeholder="https://youtube.com/watch?v=... or https://youtu.be/..."
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    <p className="text-xs text-muted-foreground mt-1.5">We&apos;ll extract and index the video transcript automatically.</p>
+                  </div>
+                )}
+
+                {kbType === "sitemap" && (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Sitemap URL</label>
+                    <input value={kbForm.url} onChange={e => setKbForm(p => ({ ...p, url: e.target.value }))}
+                      placeholder="https://yoursite.com/sitemap.xml"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    <p className="text-xs text-muted-foreground mt-1.5">We&apos;ll crawl and index all pages found in your sitemap.</p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button onClick={() => setKbStep("pick")} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Back</button>
+                  <button onClick={() => addKbItem(showKbModal)}
+                    className="px-3 py-1.5 text-sm bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
+                    Add
                   </button>
-                ))}
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Title</label>
-                <input value={kbForm.title} onChange={e => setKbForm(p => ({ ...p, title: e.target.value }))}
-                  placeholder="e.g. Company Overview"
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-              </div>
-              {kbForm.type === "text" ? (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Content</label>
-                  <textarea value={kbForm.content} onChange={e => setKbForm(p => ({ ...p, content: e.target.value }))}
-                    rows={4} placeholder="Paste your knowledge content here..."
-                    className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
                 </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">URL</label>
-                  <input value={kbForm.url} onChange={e => setKbForm(p => ({ ...p, url: e.target.value }))}
-                    placeholder="https://docs.example.com/..."
-                    className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-                </div>
-              )}
-            </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-border">
-              <button onClick={() => setShowKb(null)} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
-              <button onClick={() => addKbItem(showKb)}
-                className="px-3 py-1.5 text-sm bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
-                Add
-              </button>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Hidden file input */}
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt,.csv" className="hidden sr-only"
+        onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }} />
     </div>
   );
 }

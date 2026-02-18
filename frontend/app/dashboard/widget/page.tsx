@@ -1,205 +1,399 @@
 "use client";
 import { useState } from "react";
-import { Bot, Send, X, Copy, Check } from "lucide-react";
+import { Bot, Send, Copy, Check, Monitor, Smartphone, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 // TODO: REPLACE WITH API — GET/PATCH /agents/:id/widget
 
-const colors = ["#6366f1", "#2563eb", "#16a34a", "#dc2626", "#d97706", "#0891b2", "#7c3aed", "#db2777"];
+type Template = "bubble" | "sidepanel" | "inline" | "fullpage";
+type CodeTab = "html" | "react" | "vue";
+type Device = "desktop" | "mobile";
 
-type ProfileTab = "web" | "app";
+interface WidgetConfig {
+  primaryColor: string;
+  theme: "light" | "dark";
+  greeting: string;
+  position: "bottom-right" | "bottom-left" | "top-right";
+}
+
+const TEMPLATES: { id: Template; label: string; desc: string; ascii: string }[] = [
+  {
+    id: "bubble",
+    label: "Bubble",
+    desc: "Floating button, opens chat on click",
+    ascii: `┌───────────┐\n│  [page]   │\n│           │\n│        ●  │\n└───────────┘`,
+  },
+  {
+    id: "sidepanel",
+    label: "Side Panel",
+    desc: "Slides in from right edge",
+    ascii: `┌─────┬─────┐\n│     │chat │\n│page │ ─── │\n│     │[inp]│\n└─────┴─────┘`,
+  },
+  {
+    id: "inline",
+    label: "Inline",
+    desc: "Embedded in a <div> container",
+    ascii: `┌───────────┐\n│ ┌───────┐ │\n│ │ chat  │ │\n│ │ msgs  │ │\n│ │[input]│ │\n│ └───────┘ │\n└───────────┘`,
+  },
+  {
+    id: "fullpage",
+    label: "Full Page",
+    desc: "Chat takes the entire viewport",
+    ascii: `┌───────────┐\n│ Agent  ●  │\n│───────────│\n│  hi there │\n│  how can  │\n│ [input──] │\n└───────────┘`,
+  },
+];
+
+const defaultConfig: WidgetConfig = {
+  primaryColor: "#6d28d9",
+  theme: "light",
+  greeting: "Hi! How can I help?",
+  position: "bottom-right",
+};
 
 export default function WidgetPage() {
-  const [activeTab, setActiveTab] = useState<ProfileTab>("web");
+  const [template, setTemplate] = useState<Template>("bubble");
+  const [device, setDevice] = useState<Device>("desktop");
+  const [config, setConfig] = useState<WidgetConfig>(defaultConfig);
+  const [codeTab, setCodeTab] = useState<CodeTab>("html");
   const [copied, setCopied] = useState(false);
 
-  const [webConfig, setWebConfig] = useState({
-    agentName: "Axon AI",
-    greeting: "Hi there! 👋 How can I help you today?",
-    primaryColor: "#6366f1",
-    position: "bottom-right" as "bottom-right" | "bottom-left",
-    placeholder: "Ask me anything...",
-    hideBranding: false,
-  });
+  const updateConfig = (patch: Partial<WidgetConfig>) => setConfig(p => ({ ...p, ...patch }));
 
-  const [appConfig, setAppConfig] = useState({
-    agentName: "Axon AI",
-    greeting: "Hello! What can I help you with?",
-    primaryColor: "#2563eb",
-    placeholder: "Type a message...",
-    hideBranding: false,
-  });
-
-  const config = activeTab === "web" ? webConfig : appConfig;
-  const updateConfig = (key: string, val: any) => {
-    if (activeTab === "web") setWebConfig(p => ({ ...p, [key]: val }));
-    else setAppConfig(p => ({ ...p, [key]: val }));
+  const htmlSnippet = `<script>
+  window.AxonConfig = {
+    agentId: "YOUR_AGENT_ID",  // get this from your agent's edit page
+    theme: "${config.theme}",
+    primaryColor: "${config.primaryColor}",
+    position: "${config.position}",  // bubble only: bottom-right | bottom-left | top-right
+    greeting: "${config.greeting}",
   };
+</script>
+<script src="https://cdn.axon.ai/widget.js" defer></script>`;
 
-  const embedCode = `<script src="https://cdn.axon.ai/widget.js" data-agent-id="YOUR_AGENT_ID" async></script>`;
+  const reactSnippet = `import AxonWidget from "@axon-ai/react";
+// Store your agent ID in .env.local as NEXT_PUBLIC_AXON_AGENT_ID
+<AxonWidget
+  agentId={process.env.NEXT_PUBLIC_AXON_AGENT_ID}
+  theme="${config.theme}"
+  primaryColor="${config.primaryColor}"
+  greeting="${config.greeting}"
+/>`;
+
+  const vueSnippet = `import { AxonWidget } from "@axon-ai/vue";
+// Store your agent ID in .env as VITE_AXON_AGENT_ID
+<AxonWidget
+  :agentId="import.meta.env.VITE_AXON_AGENT_ID"
+  theme="${config.theme}"
+/>`;
+
+  const snippets: Record<CodeTab, string> = { html: htmlSnippet, react: reactSnippet, vue: vueSnippet };
 
   const copy = () => {
-    navigator.clipboard.writeText(embedCode);
+    navigator.clipboard.writeText(snippets[codeTab]);
     setCopied(true);
-    toast.success("Embed code copied!");
+    toast.success("Code copied!");
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const demoMessages = [
+  const msgs = [
     { role: "ai", text: config.greeting },
-    { role: "user", text: "Can I deploy multiple agents under one account?" },
-    { role: "ai", text: "Yes! You can create as many agents as your plan allows — each with its own system prompt, channels, and tool connections." },
+    { role: "user", text: "What plans do you offer?" },
+    { role: "ai", text: "We have Starter, Builder, and Scale — want me to walk you through them?" },
   ];
 
+  const chatBg = config.theme === "dark" ? "bg-gray-800 border-gray-700" : "bg-white border-border";
+  const msgBg = config.theme === "dark" ? "bg-gray-700 text-gray-100" : "bg-muted text-foreground";
+  const pageBg = config.theme === "dark" ? "bg-gray-900" : "bg-gray-50";
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-xl font-bold text-foreground">Chat Widget</h1>
-        <p className="text-sm text-muted-foreground">Customize your agent profile for each deployment surface.</p>
+    <div className="animate-fade-in h-full">
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-foreground">Widget Builder</h1>
+        <p className="text-sm text-muted-foreground">Choose a template, customise, and grab your embed code.</p>
       </div>
 
-      <div className="grid grid-cols-5 gap-6">
-        {/* Config panel */}
-        <div className="col-span-2 space-y-4">
-          {/* Profile tabs */}
-          <div className="bg-white rounded-xl border border-border overflow-hidden">
-            <div className="flex border-b border-border">
-              {(["web", "app"] as ProfileTab[]).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)}
-                  className={cn("flex-1 px-4 py-2.5 text-xs font-medium transition-colors",
-                    activeTab === tab ? "bg-convix-50 text-convix-700 border-b-2 border-convix-600" : "text-muted-foreground hover:text-foreground"
+      <div className="flex gap-4" style={{ height: "calc(100vh - 190px)", minHeight: "600px" }}>
+
+        {/* LEFT — Template picker (200px) */}
+        <div className="w-[200px] shrink-0 space-y-2 overflow-y-auto pr-1">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Template</p>
+          {TEMPLATES.map(t => (
+            <button key={t.id} onClick={() => setTemplate(t.id)}
+              className={cn("w-full text-left rounded-xl border p-3 transition-all",
+                template === t.id ? "border-convix-400 bg-convix-50" : "border-border bg-white hover:border-convix-200"
+              )}>
+              <pre className={cn("text-[8px] leading-tight font-mono mb-2 select-none",
+                template === t.id ? "text-convix-600" : "text-muted-foreground"
+              )}>{t.ascii}</pre>
+              <div className={cn("text-xs font-semibold", template === t.id ? "text-convix-700" : "text-foreground")}>{t.label}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{t.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* CENTER — Live preview (flex-1) */}
+        <div className="flex-1 flex flex-col bg-muted/20 rounded-2xl border border-border overflow-hidden">
+          {/* Device toggle */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-white/60 shrink-0">
+            <span className="text-xs font-medium text-muted-foreground">
+              Live Preview · {TEMPLATES.find(t => t.id === template)?.label}
+            </span>
+            <div className="flex items-center bg-muted rounded-lg overflow-hidden">
+              {(["desktop", "mobile"] as Device[]).map(d => (
+                <button key={d} onClick={() => setDevice(d)}
+                  className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors",
+                    device === d ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                   )}>
-                  {tab === "web" ? "In-Web Profile" : "In-App Profile"}
+                  {d === "desktop" ? <Monitor className="w-3 h-3" /> : <Smartphone className="w-3 h-3" />}
+                  {d === "desktop" ? "Desktop" : "Mobile"}
                 </button>
               ))}
             </div>
+          </div>
 
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
-                <input value={config.agentName} onChange={e => updateConfig("agentName", e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+          {/* Preview area */}
+          <div className={cn("flex-1 flex items-center justify-center p-6 overflow-hidden", pageBg)}>
+            <div className={cn("transition-all duration-300 relative w-full", device === "mobile" ? "max-w-sm" : "max-w-2xl")}>
+              {/* Fake browser chrome */}
+              <div className="bg-gray-200 rounded-t-xl px-4 py-2 flex items-center gap-2">
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-400" />
+                  <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                  <div className="w-3 h-3 rounded-full bg-green-400" />
+                </div>
+                <div className="flex-1 bg-white rounded-md px-3 py-1 text-[10px] text-muted-foreground">yoursite.com</div>
               </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Greeting Message</label>
-                <textarea value={config.greeting} onChange={e => updateConfig("greeting", e.target.value)} rows={2}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
+
+              {/* Browser content */}
+              <div className={cn("rounded-b-xl border border-gray-200 relative overflow-hidden", pageBg,
+                template === "fullpage" ? "h-[400px]" : "h-[360px]"
+              )}>
+                {/* Fake page content (not full page) */}
+                {template !== "fullpage" && (
+                  <div className="p-4 space-y-2">
+                    <div className="h-3 bg-gray-200 rounded w-3/4" />
+                    <div className="h-2 bg-gray-200 rounded w-1/2" />
+                    <div className="h-2 bg-gray-200 rounded w-5/6" />
+                    <div className="h-2 bg-gray-200 rounded w-2/3" />
+                  </div>
+                )}
+
+                {/* Bubble template */}
+                {template === "bubble" && (
+                  <>
+                    <div className={cn("absolute w-[220px] rounded-2xl shadow-2xl border flex flex-col overflow-hidden", chatBg,
+                      config.position === "bottom-left" ? "left-3 bottom-12" : "right-3 bottom-12",
+                      config.position === "top-right" ? "right-3 top-3 bottom-auto" : ""
+                    )} style={{ height: "200px" }}>
+                      <div className="px-3 py-2 flex items-center gap-2 shrink-0" style={{ backgroundColor: config.primaryColor }}>
+                        <Bot className="w-3.5 h-3.5 text-white" />
+                        <span className="text-[10px] font-medium text-white">Axon AI</span>
+                        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-green-300" />
+                      </div>
+                      <div className="flex-1 p-2 space-y-1.5 overflow-hidden">
+                        {msgs.map((m, i) => (
+                          <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                            <div className={cn("max-w-[80%] px-2 py-1 rounded-xl text-[9px] leading-relaxed",
+                              m.role === "user" ? "text-white" : msgBg
+                            )} style={m.role === "user" ? { backgroundColor: config.primaryColor } : {}}>
+                              {m.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-gray-200 px-2 py-1 flex items-center gap-1 shrink-0">
+                        <input readOnly placeholder="Type…" className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
+                        <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
+                          <Send className="w-2 h-2 text-white" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className={cn("absolute bottom-3 w-8 h-8 rounded-full shadow-lg flex items-center justify-center",
+                      config.position === "bottom-left" ? "left-3" : "right-3"
+                    )} style={{ backgroundColor: config.primaryColor }}>
+                      <Bot className="w-4 h-4 text-white" />
+                    </div>
+                  </>
+                )}
+
+                {/* Side panel template */}
+                {template === "sidepanel" && (
+                  <div className="absolute inset-y-0 right-0 w-[180px] border-l border-gray-200 flex flex-col overflow-hidden"
+                    style={{ backgroundColor: config.theme === "dark" ? "#1f2937" : "white" }}>
+                    <div className="px-3 py-2 flex items-center gap-2 shrink-0" style={{ backgroundColor: config.primaryColor }}>
+                      <Bot className="w-3.5 h-3.5 text-white" />
+                      <span className="text-[10px] font-medium text-white">Axon AI</span>
+                    </div>
+                    <div className="flex-1 p-2 space-y-1.5 overflow-hidden">
+                      {msgs.map((m, i) => (
+                        <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                          <div className={cn("max-w-[85%] px-2 py-1 rounded-xl text-[9px] leading-relaxed",
+                            m.role === "user" ? "text-white" : msgBg
+                          )} style={m.role === "user" ? { backgroundColor: config.primaryColor } : {}}>
+                            {m.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t border-gray-200 px-2 py-1 flex items-center gap-1 shrink-0">
+                      <input readOnly placeholder="Type…" className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Inline template */}
+                {template === "inline" && (
+                  <div className="px-4 pb-4">
+                    <div className={cn("rounded-xl border overflow-hidden shadow-sm", chatBg)} style={{ height: "215px" }}>
+                      <div className="px-3 py-2 flex items-center gap-2" style={{ backgroundColor: config.primaryColor }}>
+                        <Bot className="w-3.5 h-3.5 text-white" />
+                        <span className="text-[10px] font-medium text-white">Axon AI</span>
+                      </div>
+                      <div className="p-2 space-y-1.5 overflow-hidden" style={{ height: "145px" }}>
+                        {msgs.map((m, i) => (
+                          <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                            <div className={cn("max-w-[80%] px-2 py-1 rounded-xl text-[9px] leading-relaxed",
+                              m.role === "user" ? "text-white" : msgBg
+                            )} style={m.role === "user" ? { backgroundColor: config.primaryColor } : {}}>
+                              {m.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-gray-200 px-2 py-1 flex items-center gap-1">
+                        <input readOnly placeholder="Type a message…" className="flex-1 text-[9px] focus:outline-none bg-transparent text-muted-foreground" />
+                        <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
+                          <Send className="w-2 h-2 text-white" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Full page template */}
+                {template === "fullpage" && (
+                  <div className="absolute inset-0 flex flex-col"
+                    style={{ backgroundColor: config.theme === "dark" ? "#111827" : "white" }}>
+                    <div className="px-4 py-3 flex items-center gap-3 shrink-0" style={{ backgroundColor: config.primaryColor }}>
+                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                        <Bot className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-white">Axon AI</div>
+                        <div className="text-[10px] text-white/70">Online</div>
+                      </div>
+                    </div>
+                    <div className="flex-1 p-3 space-y-2 overflow-hidden">
+                      {msgs.map((m, i) => (
+                        <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                          <div className={cn("max-w-[70%] px-3 py-2 rounded-2xl text-xs leading-relaxed",
+                            m.role === "user" ? "text-white" : msgBg
+                          )} style={m.role === "user" ? { backgroundColor: config.primaryColor } : {}}>
+                            {m.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={cn("border-t px-4 py-2 flex items-center gap-2 shrink-0",
+                      config.theme === "dark" ? "border-gray-700" : "border-border"
+                    )}>
+                      <input readOnly placeholder="Type a message…" className={cn("flex-1 text-xs focus:outline-none bg-transparent",
+                        config.theme === "dark" ? "text-gray-300 placeholder:text-gray-500" : "text-muted-foreground"
+                      )} />
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
+                        <Send className="w-3.5 h-3.5 text-white" />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT — Code output + controls (300px) */}
+        <div className="w-[300px] shrink-0 flex flex-col gap-3 overflow-y-auto">
+          {/* Customisation controls */}
+          <div className="bg-white rounded-xl border border-border p-4 space-y-4">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Customise</p>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Primary Color</label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={config.primaryColor} onChange={e => updateConfig({ primaryColor: e.target.value })}
+                  className="w-9 h-9 rounded-lg border border-border cursor-pointer p-0.5" />
+                <input type="text" value={config.primaryColor} onChange={e => updateConfig({ primaryColor: e.target.value })}
+                  className="flex-1 px-2.5 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 font-mono" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Theme</label>
+              <div className="flex gap-2">
+                {(["light", "dark"] as const).map(t => (
+                  <button key={t} onClick={() => updateConfig({ theme: t })}
+                    className={cn("flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors capitalize",
+                      config.theme === t ? "bg-convix-600 text-white border-convix-600" : "border-border text-muted-foreground hover:text-foreground"
+                    )}>{t}</button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Greeting <span className="font-normal">({config.greeting.length}/80)</span>
+              </label>
+              <input value={config.greeting} maxLength={80} onChange={e => updateConfig({ greeting: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+            </div>
+
+            {template === "bubble" && (
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-2 block">Brand Color</label>
-                <div className="flex gap-2 flex-wrap">
-                  {colors.map(c => (
-                    <button key={c} onClick={() => updateConfig("primaryColor", c)}
-                      className={cn("w-7 h-7 rounded-full border-2 transition-all", config.primaryColor === c ? "border-foreground scale-110" : "border-transparent hover:scale-105")}
-                      style={{ backgroundColor: c }} />
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Position</label>
+                <div className="space-y-1">
+                  {(["bottom-right", "bottom-left", "top-right"] as const).map(p => (
+                    <button key={p} onClick={() => updateConfig({ position: p })}
+                      className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg border transition-colors",
+                        config.position === p ? "bg-convix-50 border-convix-300 text-convix-700" : "border-border text-muted-foreground hover:text-foreground"
+                      )}>
+                      <ChevronRight className={cn("w-3 h-3 shrink-0 transition-opacity", config.position === p ? "opacity-100" : "opacity-0")} />
+                      {p}
+                    </button>
                   ))}
                 </div>
               </div>
-              {activeTab === "web" && (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-2 block">Position</label>
-                  <div className="flex gap-2">
-                    {["bottom-right", "bottom-left"].map(p => (
-                      <button key={p} onClick={() => setWebConfig(prev => ({ ...prev, position: p as any }))}
-                        className={cn("px-3 py-1.5 text-xs rounded-lg border transition-colors", webConfig.position === p ? "bg-convix-600 text-white border-convix-600" : "border-border text-muted-foreground hover:text-foreground")}>
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-medium text-foreground">Hide "Powered by Axon"</div>
-                  <div className="text-xs text-muted-foreground">Scale plan required</div>
-                </div>
-                <button onClick={() => toast.info("Upgrade to Scale plan to remove branding")}
-                  className={cn("relative rounded-full transition-colors", "bg-muted border border-border")} style={{ height: "22px", width: "40px" }}>
-                  <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Embed code (web only) */}
-          {activeTab === "web" && (
-            <div className="bg-white rounded-xl border border-border p-5">
-              <h3 className="font-semibold text-sm text-foreground mb-3">Embed Code</h3>
-              <div className="bg-muted rounded-lg p-3 text-xs font-mono text-muted-foreground break-all leading-relaxed">
-                {embedCode}
-              </div>
-              <button onClick={copy}
-                className="mt-3 w-full flex items-center justify-center gap-2 py-2 text-xs font-medium bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors">
-                {copied ? <><Check className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Code</>}
-              </button>
-              <p className="text-xs text-muted-foreground mt-2 text-center">Paste before the closing &lt;/body&gt; tag</p>
-            </div>
-          )}
-          {activeTab === "app" && (
-            <div className="bg-white rounded-xl border border-border p-5">
-              <h3 className="font-semibold text-sm text-foreground mb-2">SDK Integration</h3>
-              <p className="text-xs text-muted-foreground mb-3">Use the Axon SDK to embed the agent in your mobile or desktop app.</p>
-              <div className="bg-muted rounded-lg p-3 text-xs font-mono text-muted-foreground">
-                npm install @axon-ai/sdk
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Live preview */}
-        <div className="col-span-3 flex flex-col items-end justify-end bg-gradient-to-br from-muted/20 to-muted/40 rounded-2xl border border-border p-6 min-h-[550px] relative">
-          <div className="absolute top-4 left-4 text-xs text-muted-foreground font-medium bg-white px-2 py-1 rounded-full border border-border">
-            Live Preview · {activeTab === "web" ? "Web Widget" : "In-App"}
-          </div>
-          {/* Widget window */}
-          <div className="w-80 bg-white rounded-2xl shadow-2xl border border-border flex flex-col overflow-hidden mb-4" style={{ height: "460px" }}>
-            {/* Header */}
-            <div className="px-4 py-3 flex items-center justify-between" style={{ backgroundColor: config.primaryColor }}>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                  <Bot className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-white">{config.agentName || "Axon AI"}</div>
-                  <div className="text-xs text-white/70 flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-300" /> Online
-                  </div>
-                </div>
-              </div>
-              <X className="w-4 h-4 text-white/70" />
-            </div>
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {demoMessages.map((m, i) => (
-                <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                  <div className={cn("max-w-[80%] px-3 py-2 rounded-2xl text-xs leading-relaxed",
-                    m.role === "user" ? "text-white" : "bg-muted text-foreground"
-                  )} style={m.role === "user" ? { backgroundColor: config.primaryColor } : {}}>
-                    {m.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* Input */}
-            <div className="border-t border-border px-3 py-2 flex items-center gap-2">
-              <input placeholder={config.placeholder} className="flex-1 text-xs focus:outline-none bg-transparent text-muted-foreground" />
-              <button className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
-                <Send className="w-3.5 h-3.5 text-white" />
-              </button>
-            </div>
-            {!config.hideBranding && (
-              <div className="text-center py-1 text-[9px] text-muted-foreground border-t border-border">
-                Powered by <span className="font-semibold">Axon AI</span>
-              </div>
             )}
           </div>
-          {/* Bubble (web only) */}
-          {activeTab === "web" && (
-            <div className="w-14 h-14 rounded-full shadow-lg flex items-center justify-center" style={{ backgroundColor: config.primaryColor }}>
-              <Bot className="w-6 h-6 text-white" />
+
+          {/* Code output */}
+          <div className="bg-white rounded-xl border border-border p-4 flex flex-col gap-3">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Embed Code</p>
+
+            <div className="flex bg-muted rounded-lg overflow-hidden">
+              {(["html", "react", "vue"] as CodeTab[]).map(t => (
+                <button key={t} onClick={() => setCodeTab(t)}
+                  className={cn("flex-1 py-1.5 text-xs font-medium transition-colors uppercase",
+                    codeTab === t ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}>{t}</button>
+              ))}
             </div>
-          )}
+
+            <pre className="bg-gray-950 rounded-lg p-3 text-[10px] font-mono text-green-400 overflow-x-auto whitespace-pre-wrap leading-relaxed min-h-[160px]">
+              {snippets[codeTab]}
+            </pre>
+
+            <button onClick={copy}
+              className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors">
+              {copied ? <><Check className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy code</>}
+            </button>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+              <p className="text-[10px] text-amber-800 leading-relaxed">
+                <strong>Security note:</strong> Your <code className="font-mono">agentId</code> is not a secret — it identifies which agent to load, like a public page ID. <strong>Never put your Axon API keys in frontend code.</strong> Keep API keys server-side only.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

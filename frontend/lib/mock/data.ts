@@ -335,10 +335,13 @@ export const mockAnalyticsData: AnalyticsDataPoint[] = generateAnalyticsData();
 
 export interface KnowledgeItem {
   id: string;
-  type: "text" | "url";
+  type: "text" | "url" | "file" | "qa" | "youtube" | "sitemap";
   title: string;
   content?: string;
   url?: string;
+  question?: string;
+  answer?: string;
+  fileName?: string;
   createdAt: string;
 }
 

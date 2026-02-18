@@ -3,9 +3,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  LayoutDashboard, MessageSquare, BarChart3, Radio, AppWindow,
-  BookOpen, Settings, Bot, ChevronLeft, ChevronRight,
-  Bell, Search, LogOut, User, Layers, Download, BookMarked, CreditCard
+  LayoutDashboard, MessageSquare, BarChart3, AppWindow,
+  BookOpen, Bot, ChevronLeft, ChevronRight,
+  Bell, Search, LogOut, User, Layers, BookMarked, CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,19 +14,13 @@ const navMain = [
   { label: "Agents", href: "/dashboard/agents", icon: Bot },
   { label: "Conversations", href: "/dashboard/conversations", icon: MessageSquare, badge: 3 },
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
-  { label: "Channels", href: "/dashboard/channels", icon: Radio },
   { label: "Widget", href: "/dashboard/widget", icon: AppWindow },
   { label: "Training", href: "/dashboard/training", icon: BookOpen },
 ];
 
 const navSecondary = [
-  { label: "Export", href: "/dashboard/export", icon: Download },
   { label: "Docs", href: "/dashboard/docs", icon: BookMarked },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
-];
-
-const navBottom = [
-  { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 type NavItem = { label: string; href: string; icon: React.ElementType; badge?: number };
@@ -86,11 +80,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className={cn("my-2", collapsed ? "mx-auto w-6 border-t border-border" : "border-t border-border mx-1")} />
 
           {renderNav(navSecondary)}
-
-          {/* Separator */}
-          <div className={cn("my-2", collapsed ? "mx-auto w-6 border-t border-border" : "border-t border-border mx-1")} />
-
-          {renderNav(navBottom)}
         </nav>
 
         {/* Bottom */}
