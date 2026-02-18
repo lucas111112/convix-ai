@@ -32,9 +32,10 @@ export default function WidgetPage() {
   });
 
   const config = activeTab === "web" ? webConfig : appConfig;
-  const setConfig = activeTab === "web"
-    ? (fn: (p: typeof webConfig) => typeof webConfig) => setWebConfig(fn)
-    : (fn: (p: typeof appConfig) => typeof appConfig) => setAppConfig(fn as any);
+  const updateConfig = (key: string, val: any) => {
+    if (activeTab === "web") setWebConfig(p => ({ ...p, [key]: val }));
+    else setAppConfig(p => ({ ...p, [key]: val }));
+  };
 
   const embedCode = `<script src="https://cdn.axon.ai/widget.js" data-agent-id="YOUR_AGENT_ID" async></script>`;
 
@@ -77,19 +78,19 @@ export default function WidgetPage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
-                <input value={config.agentName} onChange={e => setConfig(p => ({ ...p, agentName: e.target.value }))}
+                <input value={config.agentName} onChange={e => updateConfig("agentName", e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Greeting Message</label>
-                <textarea value={config.greeting} onChange={e => setConfig(p => ({ ...p, greeting: e.target.value }))} rows={2}
+                <textarea value={config.greeting} onChange={e => updateConfig("greeting", e.target.value)} rows={2}
                   className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-2 block">Brand Color</label>
                 <div className="flex gap-2 flex-wrap">
                   {colors.map(c => (
-                    <button key={c} onClick={() => setConfig(p => ({ ...p, primaryColor: c }))}
+                    <button key={c} onClick={() => updateConfig("primaryColor", c)}
                       className={cn("w-7 h-7 rounded-full border-2 transition-all", config.primaryColor === c ? "border-foreground scale-110" : "border-transparent hover:scale-105")}
                       style={{ backgroundColor: c }} />
                   ))}
