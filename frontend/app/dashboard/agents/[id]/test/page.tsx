@@ -75,15 +75,6 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
       latency, confidence: Math.round(confidence * 100) / 100,
       tokens, knowledgeRefs: usedKb.map(k => k.title),
     };
-    // TTS via Web Speech API (graceful fallback)
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        const utt = new SpeechSynthesisUtterance(response);
-        utt.rate = 1.0; utt.volume = 0.6;
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utt);
-      } catch { /* ignore */ }
-    }
     setMessages(prev => [...prev, aiMsg]);
     setThinking(false);
   };

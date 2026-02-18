@@ -1,28 +1,21 @@
 "use client";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Save, AlertTriangle, Zap, Plus, Trash2, Tag, X } from "lucide-react";
+import { Save, Zap, Plus, Trash2, Tag, X, ArrowRight } from "lucide-react";
 import { mockCustomFields, type CustomField } from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
-// TODO: REPLACE WITH API — GET/PATCH /agents/:id/settings
-
-const ttsVoices = ["Alloy", "Echo", "Fable", "Onyx", "Nova", "Shimmer"];
+// TODO: REPLACE WITH API — GET/PATCH /workspace/settings
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
-    agentName: "Aria",
-    agentAvatar: "🤖",
-    systemPrompt: "You are Aria, a helpful assistant. Be concise, friendly, and professional. When you don't know something, say so and offer to connect the user with a human.",
-    plan: "Builder",
     timezone: "America/New_York",
     confidenceThreshold: 0.65,
     handoffDest: "live_agent",
     businessHoursStart: "09:00",
     businessHoursEnd: "18:00",
-    voiceEnabled: false,
-    ttsVoice: "Nova",
-    speakingSpeed: 1.0,
+    plan: "Builder",
   });
 
   const [customFields, setCustomFields] = useState<CustomField[]>(mockCustomFields);
@@ -36,10 +29,21 @@ export default function SettingsPage() {
     if (stored) setAvailableTags(JSON.parse(stored));
   }, []);
 
-  const saveTagging = () => {
+  const save = () => {
     localStorage.setItem("axon-tagging-enabled", String(taggingEnabled));
     localStorage.setItem("axon-available-tags", JSON.stringify(availableTags));
+    toast.success("Settings saved!");
   };
+
+  const addField = () => {
+    setCustomFields(prev => [...prev, {
+      id: `field_${Date.now()}`, label: "New Field",
+      sourceEndpoint: "", field: "", showInList: true, showInDetail: true,
+    }]);
+  };
+  const removeField = (id: string) => setCustomFields(prev => prev.filter(f => f.id !== id));
+  const updateField = (id: string, key: keyof CustomField, val: unknown) =>
+    setCustomFields(prev => prev.map(f => f.id === id ? { ...f, [key]: val } : f));
 
   const addTag = () => {
     const t = tagInput.trim();
@@ -47,84 +51,31 @@ export default function SettingsPage() {
     setAvailableTags(prev => [...prev, t]);
     setTagInput("");
   };
-
   const removeTag = (tag: string) => setAvailableTags(prev => prev.filter(t => t !== tag));
-
-  const save = () => { saveTagging(); toast.success("Settings saved!"); };
-
-  const addField = () => {
-    const newField: CustomField = {
-      id: `field_${Date.now()}`,
-      label: "New Field",
-      sourceEndpoint: "",
-      field: "",
-      showInList: true,
-      showInDetail: true,
-    };
-    setCustomFields(prev => [...prev, newField]);
-  };
-
-  const removeField = (id: string) => setCustomFields(prev => prev.filter(f => f.id !== id));
-
-  const updateField = (id: string, key: keyof CustomField, val: any) => {
-    setCustomFields(prev => prev.map(f => f.id === id ? { ...f, [key]: val } : f));
-  };
-
-  const avatarOptions = ["🤖", "🧠", "💬", "⚡", "🎯", "🦾", "🤝", "✨"];
 
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl">
       <div>
         <h1 className="text-xl font-bold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground">Configure your agent identity, AI behaviour, and custom fields.</p>
+        <p className="text-sm text-muted-foreground">Workspace-level configuration — AI behaviour, business hours, and more.</p>
       </div>
 
-      {/* Agent Identity */}
-      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
-        <h3 className="font-semibold text-sm text-foreground">Agent Identity</h3>
-        <div className="flex items-center gap-4">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">Avatar</label>
-            <div className="flex gap-2 flex-wrap">
-              {avatarOptions.map(a => (
-                <button key={a} onClick={() => setSettings(p => ({ ...p, agentAvatar: a }))}
-                  className={cn("w-9 h-9 rounded-xl text-lg flex items-center justify-center border-2 transition-all",
-                    settings.agentAvatar === a ? "border-convix-600 bg-convix-50" : "border-transparent hover:border-border"
-                  )}>
-                  {a}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Agent Name</label>
-          <input value={settings.agentName} onChange={e => setSettings(p => ({ ...p, agentName: e.target.value }))}
-            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-        </div>
+      {/* Per-agent settings nudge */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-convix-50 border border-convix-200 rounded-xl text-sm">
+        <Zap className="w-4 h-4 text-convix-600 shrink-0" />
+        <span className="text-convix-700 flex-1">To edit an agent's <strong>name, system prompt, knowledge, or voice settings</strong>, click the <strong>pencil icon</strong> on any agent card.</span>
+        <Link href="/dashboard/agents" className="flex items-center gap-1 text-xs font-semibold text-convix-700 hover:text-convix-900 whitespace-nowrap">
+          Go to Agents <ArrowRight className="w-3 h-3" />
+        </Link>
+      </div>
+
+      {/* Plan */}
+      <div className="bg-white rounded-xl border border-border p-5">
+        <h3 className="font-semibold text-sm text-foreground mb-3">Workspace Plan</h3>
         <div className="flex items-center gap-2 px-3 py-2 text-sm border border-convix-200 rounded-lg bg-convix-50">
           <Zap className="w-3.5 h-3.5 text-convix-600" />
           <span className="font-medium text-convix-700">{settings.plan} Plan</span>
-          <span className="ml-auto text-xs text-convix-600 underline cursor-pointer">Upgrade</span>
-        </div>
-      </div>
-
-      {/* System Prompt */}
-      <div className="bg-white rounded-xl border border-border p-5 space-y-3">
-        <div>
-          <h3 className="font-semibold text-sm text-foreground">System Prompt</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Define your agent's personality, role, and behaviour instructions.</p>
-        </div>
-        <textarea
-          value={settings.systemPrompt}
-          onChange={e => setSettings(p => ({ ...p, systemPrompt: e.target.value }))}
-          rows={8}
-          className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 font-mono resize-y leading-relaxed"
-          placeholder="You are [agent name], a helpful assistant for [company]. Your role is to..."
-        />
-        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
-          <span>💡</span>
-          <span>Tips: Describe role + tone · List what the agent should/shouldn't do · Use {"{{customer_name}}"} for personalisation</span>
+          <Link href="/dashboard/billing" className="ml-auto text-xs text-convix-600 underline cursor-pointer">Manage billing</Link>
         </div>
       </div>
 
@@ -155,51 +106,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Voice Settings */}
-      <div className="bg-white rounded-xl border border-border p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm text-foreground">Voice Settings</h3>
-          <button onClick={() => setSettings(p => ({ ...p, voiceEnabled: !p.voiceEnabled }))}
-            className={cn("relative rounded-full transition-colors", settings.voiceEnabled ? "bg-convix-600" : "bg-muted border border-border")}
-            style={{ height: "22px", width: "40px" }}>
-            <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-              settings.voiceEnabled ? "translate-x-5" : "translate-x-0.5"
-            )} />
-          </button>
-        </div>
-        {settings.voiceEnabled && (
-          <>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-2 block">TTS Voice</label>
-              <div className="flex gap-2 flex-wrap">
-                {ttsVoices.map(v => (
-                  <button key={v} onClick={() => setSettings(p => ({ ...p, ttsVoice: v }))}
-                    className={cn("px-3 py-1.5 text-xs rounded-lg border transition-colors",
-                      settings.ttsVoice === v ? "bg-convix-600 text-white border-convix-600" : "border-border text-muted-foreground hover:text-foreground"
-                    )}>
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-2 block">
-                Speaking Speed: <span className="text-foreground font-semibold">{settings.speakingSpeed}x</span>
-              </label>
-              <input type="range" min="0.5" max="2.0" step="0.1" value={settings.speakingSpeed}
-                onChange={e => setSettings(p => ({ ...p, speakingSpeed: parseFloat(e.target.value) }))}
-                className="w-full accent-convix-600" />
-              <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                <span>Slower</span><span>Faster</span>
-              </div>
-            </div>
-          </>
-        )}
-        {!settings.voiceEnabled && (
-          <p className="text-xs text-muted-foreground">Enable to configure text-to-speech for voice channel deployments.</p>
-        )}
-      </div>
-
       {/* Business Hours */}
       <div className="bg-white rounded-xl border border-border p-5 space-y-4">
         <h3 className="font-semibold text-sm text-foreground">Business Hours</h3>
@@ -225,7 +131,7 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-sm text-foreground">Custom Conversation Fields</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Pull additional data from your own endpoints and display it in conversation views.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Pull extra data from your own endpoints into conversation views.</p>
           </div>
           <button onClick={addField}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors">
@@ -235,7 +141,7 @@ export default function SettingsPage() {
         {customFields.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-muted-foreground border border-dashed border-border rounded-xl">
             <p className="text-sm">No custom fields yet</p>
-            <p className="text-xs mt-1">Click "Add Field" to pull data from your own APIs into conversation views.</p>
+            <p className="text-xs mt-1">Click "Add Field" to pull data from your own APIs.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -245,7 +151,7 @@ export default function SettingsPage() {
                   <input value={f.label} onChange={e => updateField(f.id, "label", e.target.value)}
                     placeholder="Field label"
                     className="flex-1 px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500" />
-                  <button onClick={() => removeField(f.id)} className="p-1.5 text-muted-foreground hover:text-red-500 transition-colors">
+                  <button onClick={() => removeField(f.id)} className="p-1.5 text-muted-foreground hover:text-red-500">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -257,13 +163,11 @@ export default function SettingsPage() {
                   className="w-full px-2.5 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-convix-500 font-mono" />
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                    <input type="checkbox" checked={f.showInList} onChange={e => updateField(f.id, "showInList", e.target.checked)}
-                      className="accent-convix-600" />
+                    <input type="checkbox" checked={f.showInList} onChange={e => updateField(f.id, "showInList", e.target.checked)} className="accent-convix-600" />
                     Show in list
                   </label>
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                    <input type="checkbox" checked={f.showInDetail} onChange={e => updateField(f.id, "showInDetail", e.target.checked)}
-                      className="accent-convix-600" />
+                    <input type="checkbox" checked={f.showInDetail} onChange={e => updateField(f.id, "showInDetail", e.target.checked)} className="accent-convix-600" />
                     Show in detail
                   </label>
                 </div>
@@ -289,7 +193,7 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        {taggingEnabled && (
+        {taggingEnabled ? (
           <>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-2 block">Tags</label>
@@ -298,22 +202,19 @@ export default function SettingsPage() {
                   <span key={tag} className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-convix-50 text-convix-700 border border-convix-200">
                     <Tag className="w-2.5 h-2.5" />
                     {tag}
-                    <button onClick={() => removeTag(tag)} className="text-convix-400 hover:text-convix-700 transition-colors">
+                    <button onClick={() => removeTag(tag)} className="text-convix-400 hover:text-convix-700">
                       <X className="w-2.5 h-2.5" />
                     </button>
                   </span>
                 ))}
-                {availableTags.length === 0 && (
-                  <span className="text-xs text-muted-foreground italic">No tags yet. Add tags below.</span>
-                )}
+                {availableTags.length === 0 && <span className="text-xs text-muted-foreground italic">No tags yet.</span>}
               </div>
               <div className="flex gap-2">
                 <input value={tagInput} onChange={e => setTagInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && addTag()}
                   placeholder="e.g. billing, onboarding, bug-report"
                   className="flex-1 px-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-                <button onClick={addTag}
-                  className="px-3 py-1.5 text-sm bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
+                <button onClick={addTag} className="px-3 py-1.5 text-sm bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
                   Add
                 </button>
               </div>
@@ -322,21 +223,15 @@ export default function SettingsPage() {
               💡 A small classification model will assign one of these tags to each new conversation based on its content.
             </p>
           </>
-        )}
-        {!taggingEnabled && (
+        ) : (
           <p className="text-xs text-muted-foreground">Enable to configure auto-tagging categories for your conversations.</p>
         )}
       </div>
 
-      <div className="flex items-center justify-between">
-        <button onClick={save}
-          className="flex items-center gap-2 px-5 py-2.5 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700 transition-colors">
-          <Save className="w-4 h-4" /> Save Settings
-        </button>
-        <button className="flex items-center gap-2 px-4 py-2.5 text-red-500 text-sm font-medium rounded-lg hover:bg-red-50 transition-colors border border-red-200">
-          <AlertTriangle className="w-3.5 h-3.5" /> Delete Agent
-        </button>
-      </div>
+      <button onClick={save}
+        className="flex items-center gap-2 px-5 py-2.5 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700 transition-colors">
+        <Save className="w-4 h-4" /> Save Settings
+      </button>
     </div>
   );
 }
