@@ -1,5 +1,5 @@
 "use client";
-import { use, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { mockConversations, mockCustomFields } from "@/lib/mock/data";
 import { formatRelativeTime, cn } from "@/lib/utils";
 import { ArrowLeft, Bot, User, Headphones, AlertTriangle, ExternalLink, Settings, Tag } from "lucide-react";
@@ -24,8 +24,8 @@ function getConvTag(convId: string, tags: string[]): string | null {
   return tags[hash % tags.length];
 }
 
-export default function ConversationDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ConversationDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const conv = mockConversations.find(c => c.id === id);
   if (!conv) notFound();
 

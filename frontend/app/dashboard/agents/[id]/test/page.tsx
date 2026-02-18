@@ -1,5 +1,5 @@
 "use client";
-import { use, useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { mockAgents, mockKnowledgeItems } from "@/lib/mock/data";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -29,8 +29,8 @@ interface ChatMessage {
 type Mode = "chat" | "voice";
 type CallState = "idle" | "connecting" | "active" | "ended";
 
-export default function AgentTestPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function AgentTestPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const agent = mockAgents.find(a => a.id === id);
   if (!agent) notFound();
 
