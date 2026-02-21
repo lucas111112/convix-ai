@@ -1,6 +1,6 @@
 "use client";
-import { useState, useMemo, useRef, useEffect } from "react";
-import { mockAnalyticsData, type AnalyticsDataPoint } from "@/lib/mock/data";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { authenticatedFetch } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -12,9 +12,47 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-// TODO: REPLACE WITH API — GET /analytics?from=&to=
-
 type Range = "day" | "week" | "month" | "custom";
+
+export interface AnalyticsDataPoint {
+  date: string;
+  messages: number;
+  avgLatency: number; // ms
+  calls: number;
+  avgCallDuration: number; // minutes
+  redirects: number;
+  resolutionRate: number; // 0-100
+}
+
+interface ApiSeriesEntry {
+  date: string;
+  messages: number;
+  handoffs: number;
+  avgLatencyMs: number;
+}
+
+interface ApiAnalyticsResponse {
+  analytics: {
+    series: ApiSeriesEntry[];
+    totals: {
+      messages: number;
+      handoffs: number;
+      avgLatencyMs: number;
+    };
+  };
+}
+
+interface ApiCreditsResponse {
+  credits: {
+    balance: number;
+    consumed: {
+      messages: number;
+      voice: number;
+      tagging: number;
+      total: number;
+    };
+  };
+}
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -43,6 +81,10 @@ export default function AnalyticsPage() {
   const [activePrintChart, setActivePrintChart] = useState<string | null>(null);
   const [openChartMenu, setOpenChartMenu] = useState<string | null>(null);
 
+  const [filtered, setFiltered] = useState<AnalyticsDataPoint[]>([]);
+  const [creditsUsed, setCreditsUsed] = useState(0);
+  const [loading, setLoading] = useState(false);
+
   const chart1Ref = useRef<HTMLDivElement>(null);
   const chart2Ref = useRef<HTMLDivElement>(null);
   const chart3Ref = useRef<HTMLDivElement>(null);
@@ -66,23 +108,69 @@ export default function AnalyticsPage() {
     }
   }, [activePrintChart]);
 
-  const filtered = useMemo<AnalyticsDataPoint[]>(() => {
-    const now = new Date("2026-02-18");
-    let from: Date;
+  const getDateRange = useCallback(() => {
+    const now = new Date();
     if (range === "day") {
-      from = new Date(now); from.setDate(now.getDate() - 1);
-    } else if (range === "week") {
-      from = new Date(now); from.setDate(now.getDate() - 7);
-    } else if (range === "month") {
-      from = new Date(now); from.setDate(now.getDate() - 30);
-    } else {
-      const f = customFrom ? new Date(customFrom) : new Date(now);
-      if (!customFrom) f.setDate(now.getDate() - 30);
-      const t = customTo ? new Date(customTo) : now;
-      return mockAnalyticsData.filter(d => new Date(d.date) >= f && new Date(d.date) <= t);
+      const from = new Date(now); from.setDate(now.getDate() - 1);
+      return { from, to: now };
     }
-    return mockAnalyticsData.filter(d => new Date(d.date) >= from && new Date(d.date) <= now);
+    if (range === "week") {
+      const from = new Date(now); from.setDate(now.getDate() - 7);
+      return { from, to: now };
+    }
+    if (range === "month") {
+      const from = new Date(now); from.setDate(now.getDate() - 30);
+      return { from, to: now };
+    }
+    // custom
+    const from = customFrom ? new Date(customFrom) : new Date(now.getTime() - 30 * 86400000);
+    const to = customTo ? new Date(customTo) : now;
+    return { from, to };
   }, [range, customFrom, customTo]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const { from, to } = getDateRange();
+        const interval = range === "day" ? "day" : range === "week" ? "week" : "day";
+        const params = new URLSearchParams({
+          from: from.toISOString().slice(0, 10),
+          to: to.toISOString().slice(0, 10),
+          interval,
+        });
+
+        const [analyticsRes, creditsRes] = await Promise.all([
+          authenticatedFetch<ApiAnalyticsResponse>(`/v1/analytics?${params}`),
+          authenticatedFetch<ApiCreditsResponse>("/v1/analytics/credits"),
+        ]);
+
+        if (cancelled) return;
+
+        const mapped: AnalyticsDataPoint[] = (analyticsRes.analytics.series ?? []).map(d => ({
+          date: d.date,
+          messages: d.messages,
+          avgLatency: d.avgLatencyMs,
+          calls: 0,
+          avgCallDuration: 0,
+          redirects: d.handoffs,
+          resolutionRate: 0,
+        }));
+
+        setFiltered(mapped);
+        setCreditsUsed(creditsRes.credits.consumed.total);
+      } catch {
+        // silently keep previous data on fetch error
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void fetchData();
+    return () => { cancelled = true; };
+  }, [range, customFrom, customTo, getDateRange]);
 
   const totalMessages = filtered.reduce((s, d) => s + d.messages, 0);
   const avgLatency = filtered.length ? Math.round(filtered.reduce((s, d) => s + d.avgLatency, 0) / filtered.length) : 0;
@@ -106,8 +194,6 @@ export default function AnalyticsPage() {
   ];
 
   const chartData = filtered.map(d => ({ ...d, date: formatDate(d.date) }));
-
-  const creditsUsed = 1240;
 
   const stats = [
     { id: "messages", label: "Total Messages", value: totalMessages.toLocaleString(), rawValue: totalMessages.toString(), icon: MessageSquare, color: "text-convix-600", bg: "bg-convix-50" },
@@ -224,7 +310,9 @@ export default function AnalyticsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground">Analytics</h1>
-          <p className="text-sm text-muted-foreground">{filtered.length} day{filtered.length !== 1 ? "s" : ""} of data</p>
+          <p className="text-sm text-muted-foreground">
+            {loading ? "Loading…" : `${filtered.length} day${filtered.length !== 1 ? "s" : ""} of data`}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">

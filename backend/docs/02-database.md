@@ -1,0 +1,498 @@
+# Database Schema
+
+**Engine**: PostgreSQL 16 with the `pgvector` extension
+**ORM**: Prisma 5
+
+## Enable pgvector
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+In Prisma schema, declare the extension:
+
+```prisma
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+```
+
+---
+
+## Full Prisma Schema
+
+```prisma
+// ─────────────────────────────────────────────────────────────────
+// USERS & WORKSPACES
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          UserRole  @default(MEMBER)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspaceMemberships WorkspaceMember[]
+  refreshTokens        RefreshToken[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique  // used in webhook URLs: /webhooks/:slug/whatsapp
+  plan      Plan     @default(STARTER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       WorkspaceMember[]
+  agents        Agent[]
+  channels      Channel[]
+  conversations Conversation[]
+  knowledgeDocs KnowledgeDoc[]
+  analytics     AnalyticsRollup[]
+  creditLedger  CreditLedger[]
+  stripeCustomerId String? @unique
+
+  @@map("workspaces")
+}
+
+enum Plan {
+  STARTER
+  BUILDER
+  PRO
+  ENTERPRISE
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        UserRole  @default(MEMBER)
+  joinedAt    DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@map("workspace_members")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique  // SHA-256 of the actual token
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AGENTS
+// ─────────────────────────────────────────────────────────────────
+
+model Agent {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  name         String
+  avatar       String    @default("🤖")
+  systemPrompt String    @db.Text
+  status       AgentStatus @default(INACTIVE)
+  mode         AgentMode   @default(TEXT)
+
+  // Voice settings
+  voiceEnabled  Boolean  @default(false)
+  ttsVoice      String?  // e.g. "alloy", "nova", "shimmer"
+
+  // Handoff settings
+  handoffEnabled    Boolean @default(false)
+  handoffThreshold  Float   @default(0.65)  // 0.0–1.0 confidence
+  handoffDest       HandoffDest @default(NONE)
+  routingPolicy     String? @db.Text  // injected into system prompt
+
+  // Advanced settings
+  businessHours     Json?   // { enabled: bool, timezone: string, schedule: {...} }
+  customFields      Json?   // array of field definitions
+  taggingEnabled    Boolean @default(false)
+  availableTags     String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channels      AgentChannel[]
+  conversations Conversation[]
+  knowledgeDocs KnowledgeDoc[]
+  widgetConfig  WidgetConfig?
+
+  @@index([workspaceId])
+  @@map("agents")
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+}
+
+enum AgentMode {
+  TEXT
+  VOICE
+  BOTH
+}
+
+enum HandoffDest {
+  NONE
+  LIVE_AGENT   // internal live agent (future)
+  ZENDESK
+  FRESHDESK
+  GORGIAS
+  EMAIL_QUEUE
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CHANNELS
+// ─────────────────────────────────────────────────────────────────
+
+model Channel {
+  id          String      @id @default(cuid())
+  workspaceId String
+  type        ChannelType
+  isActive    Boolean     @default(false)
+  // credentials stored as AES-256-GCM encrypted JSON blob
+  credentials String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentChannel AgentChannel[]
+
+  @@unique([workspaceId, type])
+  @@map("channels")
+}
+
+model AgentChannel {
+  id        String  @id @default(cuid())
+  agentId   String
+  channelId String
+  isActive  Boolean @default(true)
+
+  agent   Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, channelId])
+  @@map("agent_channels")
+}
+
+enum ChannelType {
+  WEB
+  WHATSAPP
+  TELEGRAM
+  MESSENGER
+  SLACK
+  SMS
+  VOICE
+  EMAIL
+}
+
+// ─────────────────────────────────────────────────────────────────
+// WIDGET CONFIG
+// ─────────────────────────────────────────────────────────────────
+
+model WidgetConfig {
+  id              String  @id @default(cuid())
+  agentId         String  @unique
+  primaryColor    String  @default("#6d28d9")
+  theme           String  @default("light")   // "light" | "dark"
+  greeting        String  @default("Hi! How can I help?")
+  position        String  @default("bottom-right")
+  cornerRadius    Int     @default(16)
+  shadow          String  @default("soft")    // "none" | "soft" | "strong"
+  headerTitle     String  @default("Axon AI")
+  inputPlaceholder String @default("Type a message…")
+  streaming       Boolean @default(true)
+  template        String  @default("bubble")  // "bubble" | "sidepanel" | "inline" | "fullpage"
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("widget_configs")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// KNOWLEDGE
+// ─────────────────────────────────────────────────────────────────
+
+model KnowledgeDoc {
+  id          String          @id @default(cuid())
+  workspaceId String
+  agentId     String
+  type        KnowledgeType
+  title       String
+  status      KnowledgeStatus @default(PENDING)
+  sourceUrl   String?         // for URL / YouTube / sitemap types
+  storageKey  String?         // for PDF / file types (S3/R2 key)
+  rawContent  String?         @db.Text // for TEXT / QA types
+  chunkCount  Int             @default(0)
+  isActive    Boolean         @default(true)
+  errorMsg    String?         // populated if status = ERROR
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  chunks    KnowledgeChunk[]
+
+  @@index([agentId])
+  @@map("knowledge_docs")
+}
+
+enum KnowledgeType {
+  TEXT
+  URL
+  PDF
+  QA
+  YOUTUBE
+  SITEMAP
+}
+
+enum KnowledgeStatus {
+  PENDING      // queued for ingestion
+  PROCESSING   // being chunked + embedded
+  READY        // indexed and searchable
+  ERROR        // ingestion failed
+}
+
+model KnowledgeChunk {
+  id        String                  @id @default(cuid())
+  docId     String
+  content   String                  @db.Text
+  embedding Unsupported("vector(1536)")?
+  chunkIdx  Int                     // position within doc
+  metadata  Json?                   // page number, heading, URL fragment, etc.
+  createdAt DateTime                @default(now())
+
+  doc KnowledgeDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId])
+  @@map("knowledge_chunks")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CONVERSATIONS & MESSAGES
+// ─────────────────────────────────────────────────────────────────
+
+model Conversation {
+  id              String             @id @default(cuid())
+  workspaceId     String
+  agentId         String
+  channelType     ChannelType
+  externalId      String?            // platform-side conversation/thread ID
+  customerId      String             // opaque customer identifier (phone, email, user_id)
+  customerName    String?
+  status          ConversationStatus @default(OPEN)
+  sentiment       Float?             // -1.0 to 1.0 (last computed)
+  intentScore     Float?             // 0.0 to 1.0
+  tags            String[]           @default([])
+  metadata        Json?              // custom fields, attribution data
+  resolvedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  handoffs  Handoff[]
+
+  @@index([workspaceId, createdAt])
+  @@index([agentId])
+  @@index([customerId])
+  @@map("conversations")
+}
+
+enum ConversationStatus {
+  OPEN
+  HANDED_OFF
+  RESOLVED
+  ABANDONED
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String      @db.Text
+  confidence     Float?      // AI messages only: composite score
+  latencyMs      Int?        // AI messages only: pipeline duration
+  tokens         Int?        // AI messages only: prompt + completion tokens
+  channelMsgId   String?     // platform-assigned message ID
+  metadata       Json?       // voice duration, file attachments, etc.
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  HUMAN_AGENT
+}
+
+// ─────────────────────────────────────────────────────────────────
+// HANDOFF
+// ─────────────────────────────────────────────────────────────────
+
+model Handoff {
+  id             String        @id @default(cuid())
+  conversationId String
+  trigger        HandoffTrigger
+  confidence     Float?        // score at time of trigger
+  summary        String        @db.Text  // AI-generated handoff summary
+  destination    HandoffDest
+  externalTicketId String?     // Zendesk/Freshdesk ticket ID
+  resolvedAt     DateTime?
+  learningNote   String?       @db.Text  // what the AI should have said
+  createdAt      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("handoffs")
+}
+
+enum HandoffTrigger {
+  LOW_CONFIDENCE
+  ANGER_DETECTED
+  EXPLICIT_REQUEST  // customer said "speak to a human"
+  POLICY_RULE       // routing policy condition matched
+  BUSINESS_HOURS    // outside business hours
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ANALYTICS
+// ─────────────────────────────────────────────────────────────────
+
+model AnalyticsRollup {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  agentId          String?  // null = workspace-wide
+  date             DateTime @db.Date
+  totalMessages    Int      @default(0)
+  totalConversations Int    @default(0)
+  handoffs         Int      @default(0)
+  resolved         Int      @default(0)
+  avgLatencyMs     Int      @default(0)
+  p95LatencyMs     Int      @default(0)
+  voiceMinutes     Int      @default(0)   // seconds, displayed as minutes
+  creditsConsumed  Int      @default(0)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, agentId, date])
+  @@index([workspaceId, date])
+  @@map("analytics_rollups")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BILLING & CREDITS
+// ─────────────────────────────────────────────────────────────────
+
+model CreditLedger {
+  id          String      @id @default(cuid())
+  workspaceId String
+  delta       Int         // positive = top-up, negative = consumption
+  reason      CreditReason
+  refId       String?     // conversation ID, invoice ID, etc.
+  balance     Int         // running balance after this entry
+  createdAt   DateTime    @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("credit_ledger")
+}
+
+enum CreditReason {
+  PLAN_GRANT        // monthly credits from plan
+  TOPUP_PURCHASE    // one-time credit pack purchase
+  MESSAGE_CONSUMED  // 1 credit per text message
+  VOICE_CONSUMED    // 5 credits per voice minute
+  TAGGING_CONSUMED  // 2 credits per auto-tagged conversation
+  REFUND            // manual credit grant / refund
+}
+```
+
+---
+
+## Indexes Strategy
+
+| Table | Index | Reason |
+|---|---|---|
+| `conversations` | `(workspaceId, createdAt)` | Time-range analytics queries |
+| `conversations` | `(customerId)` | Customer history lookup |
+| `messages` | `(conversationId, createdAt)` | Ordered message fetch |
+| `analytics_rollups` | `(workspaceId, date)` | Dashboard chart queries |
+| `credit_ledger` | `(workspaceId, createdAt)` | Running balance computation |
+| `knowledge_chunks` | `embedding` (HNSW) | Vector similarity search |
+
+### pgvector HNSW Index
+
+```sql
+CREATE INDEX knowledge_chunks_embedding_idx
+  ON knowledge_chunks
+  USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
+```
+
+This must be created **after** the table is populated (not in migration). Add to a separate migration or seed script after initial data load.
+
+---
+
+## Soft Deletes
+
+Not used. Resources that are deleted are hard-deleted. Conversations and messages are retained (legal hold). Agents are cascade-deleted along with their knowledge and channels.
+
+---
+
+## Connection Pooling
+
+```bash
+# Prisma recommends PgBouncer in transaction mode for serverless
+DATABASE_URL="postgresql://user:pw@pgbouncer:6432/axon?pgbouncer=true"
+DIRECT_URL="postgresql://user:pw@postgres:5432/axon"  # for migrations
+```
+
+In `schema.prisma`:
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+```

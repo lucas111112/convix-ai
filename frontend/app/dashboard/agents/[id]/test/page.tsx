@@ -1,20 +1,26 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
-import { mockAgents, mockKnowledgeItems } from "@/lib/mock/data";
-import { notFound } from "next/navigation";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { authenticatedFetch, clearAccessToken, getAccessToken } from "@/lib/auth";
+import { notFound, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Bot, User, Send, Mic, MicOff, Phone, PhoneOff, FileText, Link2, Timer, Zap, Brain, Hash } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  FileText,
+  Hash,
+  Link2,
+  Mic,
+  MicOff,
+  Phone,
+  PhoneOff,
+  Send,
+  Timer,
+  User,
+  Zap,
+  Brain,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// TODO: REPLACE WITH API — POST /agents/:id/chat, /agents/:id/call
-
-const MOCK_RESPONSES = [
-  "Thanks for reaching out! I'm happy to help with that. Could you provide a bit more context so I can give you the most accurate answer?",
-  "Great question! Based on the knowledge I have access to, here's what I can tell you: the system is designed to handle this scenario by automatically routing the request to the appropriate handler.",
-  "I understand your concern. Let me check the relevant information for you... Based on our documentation, the recommended approach is to follow the standard procedure outlined in the setup guide.",
-  "That's a common question! The short answer is yes — this is fully supported. You can configure this behavior in the agent settings under the Advanced tab.",
-  "I appreciate your patience. I want to make sure I give you accurate information. From what I know, the best way to handle this is to contact support with your account ID and they'll be able to assist you directly.",
-];
+import { toast } from "sonner";
 
 interface ChatMessage {
   id: string;
@@ -26,21 +32,68 @@ interface ChatMessage {
   knowledgeRefs?: string[];
 }
 
+interface KnowledgeItem {
+  id: string;
+  title: string;
+  type: string;
+}
+
+interface AgentDoc {
+  id: string;
+  title: string;
+  type: string;
+  status?: string;
+  isActive?: boolean;
+}
+
+interface AgentPayload {
+  agent: {
+    id: string;
+    name: string;
+    systemPrompt: string;
+    knowledgeDocs?: AgentDoc[];
+  };
+}
+
+interface ChatPayload {
+  conversationId: string;
+  message: {
+    role: string;
+    content: string;
+    confidence: number;
+    latencyMs: number;
+    tokens?: number;
+  };
+}
+
 type Mode = "chat" | "voice";
 type CallState = "idle" | "connecting" | "active" | "ended";
+type AgentMode = "loading" | "ready" | "not-found";
+
+function isSessionExpired(err: string): boolean {
+  return (
+    err.toLowerCase().includes("unauthorized") ||
+    err.toLowerCase().includes("expired") ||
+    err.toLowerCase().includes("invalid token")
+  );
+}
 
 export default function AgentTestPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const { id } = params;
-  const agent = mockAgents.find(a => a.id === id);
-  if (!agent) notFound();
 
-  const kb = mockKnowledgeItems[id] ?? [];
   const [mode, setMode] = useState<Mode>("chat");
+  const [agentMode, setAgentMode] = useState<AgentMode>("loading");
+  const [agentName, setAgentName] = useState("Agent");
+  const [systemPrompt, setSystemPrompt] = useState("No system prompt configured.");
+  const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
+  const [agentLoadError, setAgentLoadError] = useState<string | null>(null);
 
-  // Chat state
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Voice state
@@ -48,52 +101,315 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
   const [callDuration, setCallDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [postCallSummary, setPostCallSummary] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceMessages, setVoiceMessages] = useState<ChatMessage[]>([]);
+  const [voiceStatus, setVoiceStatus] = useState<string>("");
+
+  // Refs for voice resources
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const callStateRef = useRef<CallState>("idle");
+  const voiceConvIdRef = useRef<string | undefined>(undefined);
+  const mutedRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    mutedRef.current = muted;
+  }, [muted]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      recognitionRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+      window.speechSynthesis?.cancel();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!getAccessToken()) {
+      router.push("/login");
+      return;
+    }
+
+    let canceled = false;
+    const fetchAgent = async () => {
+      setAgentMode("loading");
+      setAgentLoadError(null);
+
+      try {
+        const payload = await authenticatedFetch<AgentPayload>(`/v1/agents/${id}`, {
+          method: "GET",
+        });
+        if (canceled) return;
+
+        setAgentName(payload.agent.name);
+        setSystemPrompt(payload.agent.systemPrompt || "No system prompt configured.");
+        setKnowledgeItems(
+          (payload.agent.knowledgeDocs ?? []).filter(d => d.isActive !== false).map((doc) => ({
+            id: doc.id,
+            title: doc.title,
+            type: doc.type,
+          })),
+        );
+        setAgentMode("ready");
+      } catch (error) {
+        if (canceled) return;
+        setAgentMode("not-found");
+        setAgentLoadError(
+          error instanceof Error
+            ? error.message
+            : "No agent found for this ID.",
+        );
+      }
+    };
+
+    void fetchAgent();
+    return () => {
+      canceled = true;
+    };
+  }, [id, router]);
+
+  if (agentMode === "not-found") {
+    notFound();
+  }
 
   const sendMessage = async () => {
     if (!input.trim() || thinking) return;
-    const userMsg: ChatMessage = { id: `m_${Date.now()}`, role: "user", content: input.trim() };
-    setMessages(prev => [...prev, userMsg]);
+    if (!getAccessToken()) {
+      router.push("/login");
+      return;
+    }
+    if (agentMode !== "ready") {
+      setChatError("Agent is still loading. Please wait.");
+      return;
+    }
+
+    const userMessageText = input.trim();
+    const userMsg: ChatMessage = {
+      id: `m_${Date.now()}`,
+      role: "user",
+      content: userMessageText,
+    };
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
     setInput("");
     setThinking(true);
-    const latency = 800 + Math.floor(Math.random() * 700);
-    await new Promise(r => setTimeout(r, latency));
-    const response = MOCK_RESPONSES[messages.length % MOCK_RESPONSES.length];
-    const confidence = 0.72 + Math.random() * 0.26;
-    const tokens = 80 + Math.floor(Math.random() * 200);
-    const usedKb = kb.slice(0, Math.floor(Math.random() * (kb.length + 1)));
-    const aiMsg: ChatMessage = {
-      id: `m_${Date.now() + 1}`, role: "ai", content: response,
-      latency, confidence: Math.round(confidence * 100) / 100,
-      tokens, knowledgeRefs: usedKb.map(k => k.title),
-    };
-    setMessages(prev => [...prev, aiMsg]);
-    setThinking(false);
+    setChatError(null);
+
+    try {
+      const start = performance.now();
+      const chatPayload: ChatPayload = await authenticatedFetch<ChatPayload>(`/v1/agents/${id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: nextMessages.map((message) => ({ role: message.role === "user" ? "user" : "assistant", content: message.content })),
+          conversationId,
+          stream: false,
+        }),
+      });
+      const latency = Math.round(performance.now() - start);
+      setConversationId(chatPayload.conversationId);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `m_${Date.now() + 1}`,
+          role: "ai",
+          content: chatPayload.message.content,
+          latency,
+          confidence: chatPayload.message.confidence,
+          tokens: chatPayload.message.tokens,
+        },
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to get a response.";
+      if (isSessionExpired(message)) {
+        clearAccessToken();
+        router.push("/login");
+      }
+      setChatError(message);
+    } finally {
+      setThinking(false);
+    }
   };
 
-  const startCall = () => {
-    setCallState("connecting");
-    setCallDuration(0);
-    setPostCallSummary(null);
-    setTimeout(() => {
-      setCallState("active");
-      timerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000);
-    }, 1500);
+  // ── Voice call implementation ─────────────────────────────────────────────
+
+  const speakText = useCallback((text: string, onDone?: () => void) => {
+    if (!window.speechSynthesis) { onDone?.(); return; }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.lang = "en-US";
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => { setIsSpeaking(false); onDone?.(); };
+    utterance.onerror = () => { setIsSpeaking(false); onDone?.(); };
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (callStateRef.current !== "active") return;
+    if (mutedRef.current) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognitionClass: any =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognitionClass) {
+      toast.error("Speech recognition is not supported in this browser. Try Chrome, Edge, or Safari.");
+      return;
+    }
+
+    const recognition = new SpeechRecognitionClass();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = async (event: any) => {
+      const transcript = event.results[0][0].transcript.trim();
+      if (!transcript || callStateRef.current !== "active") return;
+      setIsListening(false);
+      setVoiceStatus(`You said: "${transcript}"`);
+
+      const userMsg: ChatMessage = { id: `vm_${Date.now()}`, role: "user", content: transcript };
+      setVoiceMessages(prev => [...prev, userMsg]);
+
+      try {
+        setVoiceStatus("Agent is thinking…");
+        const payload = await authenticatedFetch<ChatPayload>(`/v1/agents/${id}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: transcript }],
+            conversationId: voiceConvIdRef.current,
+            stream: false,
+            isVoiceCall: true,
+          }),
+        });
+
+        voiceConvIdRef.current = payload.conversationId;
+        const aiMsg: ChatMessage = { id: `vm_${Date.now() + 1}`, role: "ai", content: payload.message.content };
+        setVoiceMessages(prev => [...prev, aiMsg]);
+
+        setVoiceStatus("Agent speaking…");
+        speakText(payload.message.content, () => {
+          setVoiceStatus("Listening…");
+          if (callStateRef.current === "active") {
+            setTimeout(() => startListening(), 300);
+          }
+        });
+      } catch {
+        if (callStateRef.current === "active") {
+          setVoiceStatus("Error — listening again…");
+          setTimeout(() => startListening(), 1000);
+        }
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      if (callStateRef.current === "active") {
+        setVoiceStatus("Listening…");
+        setTimeout(() => startListening(), 500);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+    setVoiceStatus("Listening…");
+  }, [id, speakText]);
+
+  const startCall = async () => {
+    // Check for Speech Recognition support first
+    const hasSpeechRecognition =
+      "SpeechRecognition" in window || "webkitSpeechRecognition" in window;
+    if (!hasSpeechRecognition) {
+      toast.error("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+
+    try {
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      setCallState("connecting");
+      callStateRef.current = "connecting";
+      setCallDuration(0);
+      setPostCallSummary(null);
+      setVoiceMessages([]);
+      voiceConvIdRef.current = undefined;
+
+      setTimeout(() => {
+        setCallState("active");
+        callStateRef.current = "active";
+        timerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000);
+
+        // Greet the user then start listening
+        speakText(`Hi! I'm ${agentName}. How can I help you today?`, () => {
+          setVoiceStatus("Listening…");
+          startListening();
+        });
+      }, 1000);
+    } catch {
+      toast.error("Microphone access denied. Please allow microphone access to start a voice call.");
+    }
   };
 
   const endCall = () => {
+    // Stop recognition
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    recognitionRef.current = null;
+
+    // Stop speech synthesis
+    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
+
+    // Stop media stream
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    mediaStreamRef.current = null;
+
+    // Stop timer
     if (timerRef.current) clearInterval(timerRef.current);
+
+    callStateRef.current = "ended";
     setCallState("ended");
+    setIsListening(false);
+    setIsSpeaking(false);
+    setVoiceStatus("");
+
     const dur = callDuration;
-    setPostCallSummary(`Call lasted ${Math.floor(dur / 60)}m ${dur % 60}s. The agent handled the conversation with an estimated 87% confidence. No handoff was triggered. 3 knowledge references were used during the session.`);
+    const msgCount = voiceMessages.length;
+    setPostCallSummary(
+      `Call lasted ${Math.floor(dur / 60)}m ${dur % 60}s. ${msgCount} messages exchanged during the session.`
+    );
+  };
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    mutedRef.current = next;
+    if (next) {
+      // Muting: stop current recognition
+      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    } else {
+      // Unmuting: restart listening if in active call
+      if (callStateRef.current === "active" && !isSpeaking) {
+        setTimeout(() => startListening(), 200);
+      }
+    }
   };
 
   const formatDuration = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -112,8 +428,8 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
             <Bot className="w-4 h-4 text-convix-600" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-foreground">{agent.name} — Test Environment</h1>
-            <p className="text-xs text-muted-foreground">Responses are simulated · No real API calls</p>
+            <h1 className="text-sm font-bold text-foreground">{agentName} — Test Environment</h1>
+            <p className="text-xs text-muted-foreground">Live backend responses · Uses this agent's system prompt</p>
           </div>
         </div>
 
@@ -134,18 +450,39 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
+      {agentMode === "loading" ? (
+        <div className="bg-white rounded-xl border border-border px-4 py-3 text-sm text-muted-foreground">
+          Loading agent configuration...
+        </div>
+      ) : null}
+
+      {agentLoadError ? (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+          {agentLoadError}
+        </div>
+      ) : null}
+
+      {chatError ? (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+          {chatError}
+        </div>
+      ) : null}
+
       {mode === "chat" ? (
         <div className="flex gap-4 flex-1 min-h-0" style={{ height: "calc(100vh - 12rem)" }}>
           {/* Chat panel */}
           <div className="flex-1 bg-white rounded-xl border border-border flex flex-col min-h-0">
             <div className="px-4 py-3 border-b border-border shrink-0">
-              <span className="text-xs font-medium text-muted-foreground">Chat with {agent.name}</span>
+              <span className="text-xs font-medium text-muted-foreground">Chat with {agentName}</span>
+            </div>
+            <div className="px-4 py-2 border-b border-border shrink-0 bg-slate-50">
+              <p className="text-xs text-muted-foreground font-mono">{systemPrompt}</p>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-2">
                   <Bot className="w-10 h-10 opacity-20" />
-                  <p className="text-sm">Send a message to start testing {agent.name}</p>
+                  <p className="text-sm">Send a message to start testing {agentName}</p>
                 </div>
               )}
               {messages.map(msg => (
@@ -179,9 +516,9 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
             <div className="border-t border-border p-3 shrink-0 flex gap-2">
               <input value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
-                placeholder={`Message ${agent.name}...`}
+                placeholder={`Message ${agentName}...`}
                 className="flex-1 px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-muted/30" />
-              <button onClick={sendMessage} disabled={!input.trim() || thinking}
+              <button onClick={sendMessage} disabled={!input.trim() || thinking || agentMode !== "ready"}
                 className="p-2 bg-convix-600 text-white rounded-lg hover:bg-convix-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                 <Send className="w-4 h-4" />
               </button>
@@ -215,7 +552,7 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Hash className="w-3 h-3" /> Tokens
                     </div>
-                    <span className="text-xs font-semibold text-foreground">{latestAI.tokens}</span>
+                    <span className="text-xs font-semibold text-foreground">{latestAI.tokens ?? "n/a"}</span>
                   </div>
                 </div>
               ) : (
@@ -239,9 +576,9 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
 
             <div className="bg-white rounded-xl border border-border p-4">
               <h3 className="text-xs font-semibold text-foreground mb-3 uppercase tracking-wide">Agent Knowledge</h3>
-              {kb.length > 0 ? (
+              {knowledgeItems.length > 0 ? (
                 <div className="space-y-2">
-                  {kb.map(item => (
+                  {knowledgeItems.map(item => (
                     <div key={item.id} className="flex items-start gap-2 text-xs">
                       {item.type === "url" ? <Link2 className="w-3.5 h-3.5 text-convix-600 shrink-0 mt-0.5" /> : <FileText className="w-3.5 h-3.5 text-convix-600 shrink-0 mt-0.5" />}
                       <span className="text-muted-foreground leading-tight">{item.title}</span>
@@ -257,82 +594,125 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
       ) : (
         /* Voice Call Mode */
         <div className="flex gap-4 flex-1 min-h-0">
-          <div className="flex-1 bg-white rounded-xl border border-border flex flex-col items-center justify-center p-8 gap-6">
-            {callState === "idle" && (
-              <>
-                <div className="w-24 h-24 rounded-full bg-convix-50 flex items-center justify-center">
-                  <Bot className="w-12 h-12 text-convix-400" />
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-foreground">{agent.name}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Ready to start a simulated voice call</p>
-                </div>
-                <button onClick={startCall}
-                  className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700 transition-colors">
-                  <Phone className="w-5 h-5" /> Start Call
-                </button>
-              </>
-            )}
-
-            {callState === "connecting" && (
-              <>
-                <div className="relative w-24 h-24">
-                  <div className="absolute inset-0 rounded-full bg-convix-200 animate-ping opacity-40" />
-                  <div className="relative w-24 h-24 rounded-full bg-convix-100 flex items-center justify-center">
-                    <Bot className="w-12 h-12 text-convix-600" />
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground animate-pulse">Connecting to {agent.name}...</p>
-              </>
-            )}
-
-            {callState === "active" && (
-              <>
-                <div className="relative w-24 h-24">
-                  <div className="absolute inset-0 rounded-full bg-green-200 animate-ping opacity-30" />
-                  <div className="absolute inset-2 rounded-full bg-green-100 animate-ping opacity-40" style={{ animationDelay: "0.2s" }} />
-                  <div className="relative w-24 h-24 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center">
-                    <Bot className="w-12 h-12 text-green-600" />
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-foreground">In call with {agent.name}</p>
-                  <div className="flex items-center gap-1.5 justify-center mt-1">
-                    <Timer className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-sm font-mono text-muted-foreground">{formatDuration(callDuration)}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <button onClick={() => setMuted(!muted)}
-                    className={cn("w-12 h-12 rounded-full flex items-center justify-center transition-colors",
-                      muted ? "bg-red-100 text-red-600" : "bg-muted text-foreground hover:bg-muted/80"
+          <div className="flex-1 bg-white rounded-xl border border-border flex flex-col min-h-0">
+            {/* Voice conversation transcript */}
+            {voiceMessages.length > 0 && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 border-b border-border">
+                {voiceMessages.map(msg => (
+                  <div key={msg.id} className={cn("flex gap-2 max-w-[85%]", msg.role === "user" ? "self-start" : "self-end ml-auto flex-row-reverse")}>
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0",
+                      msg.role === "user" ? "bg-muted" : "bg-convix-100"
                     )}>
-                    {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                  </button>
-                  <button onClick={endCall}
-                    className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 transition-colors">
-                    <PhoneOff className="w-6 h-6" />
-                  </button>
-                </div>
-                {muted && <p className="text-xs text-red-500">Microphone muted</p>}
-              </>
-            )}
-
-            {callState === "ended" && postCallSummary && (
-              <div className="max-w-sm text-center space-y-4">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
-                  <Phone className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Call Ended</p>
-                  <p className="text-sm text-muted-foreground mt-3 leading-relaxed">{postCallSummary}</p>
-                </div>
-                <button onClick={() => { setCallState("idle"); setCallDuration(0); setPostCallSummary(null); }}
-                  className="px-5 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700 transition-colors">
-                  Start New Call
-                </button>
+                      {msg.role === "user" ? <User className="w-3 h-3 text-muted-foreground" /> : <Bot className="w-3 h-3 text-convix-600" />}
+                    </div>
+                    <div className={cn("rounded-xl px-3 py-2 text-xs leading-relaxed",
+                      msg.role === "user" ? "bg-muted text-foreground" : "bg-convix-600 text-white"
+                    )}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
+
+            {/* Voice call controls */}
+            <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6">
+              {callState === "idle" && (
+                <>
+                  <div className="w-24 h-24 rounded-full bg-convix-50 flex items-center justify-center">
+                    <Bot className="w-12 h-12 text-convix-400" />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-foreground">{agentName}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Click Start Call to connect via microphone</p>
+                    <p className="text-xs text-muted-foreground mt-1">Requires microphone permission · Chrome recommended</p>
+                  </div>
+                  <button onClick={startCall}
+                    className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700 transition-colors">
+                    <Phone className="w-5 h-5" /> Start Call
+                  </button>
+                </>
+              )}
+
+              {callState === "connecting" && (
+                <>
+                  <div className="relative w-24 h-24">
+                    <div className="absolute inset-0 rounded-full bg-convix-200 animate-ping opacity-40" />
+                    <div className="relative w-24 h-24 rounded-full bg-convix-100 flex items-center justify-center">
+                      <Bot className="w-12 h-12 text-convix-600" />
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground animate-pulse">Connecting to {agentName}...</p>
+                </>
+              )}
+
+              {callState === "active" && (
+                <>
+                  <div className="relative w-24 h-24">
+                    {isListening && (
+                      <>
+                        <div className="absolute inset-0 rounded-full bg-green-200 animate-ping opacity-30" />
+                        <div className="absolute inset-2 rounded-full bg-green-100 animate-ping opacity-40" style={{ animationDelay: "0.2s" }} />
+                      </>
+                    )}
+                    {isSpeaking && (
+                      <>
+                        <div className="absolute inset-0 rounded-full bg-convix-200 animate-ping opacity-30" />
+                        <div className="absolute inset-2 rounded-full bg-convix-100 animate-ping opacity-40" style={{ animationDelay: "0.2s" }} />
+                      </>
+                    )}
+                    <div className={cn("relative w-24 h-24 rounded-full border-2 flex items-center justify-center",
+                      isListening ? "bg-green-50 border-green-200" : isSpeaking ? "bg-convix-50 border-convix-200" : "bg-muted border-border"
+                    )}>
+                      <Bot className={cn("w-12 h-12", isListening ? "text-green-600" : isSpeaking ? "text-convix-600" : "text-muted-foreground")} />
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-foreground">In call with {agentName}</p>
+                    <div className="flex items-center gap-1.5 justify-center mt-1">
+                      <Timer className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-sm font-mono text-muted-foreground">{formatDuration(callDuration)}</span>
+                    </div>
+                    {voiceStatus && (
+                      <p className={cn("text-xs mt-2 font-medium",
+                        isListening ? "text-green-600" : isSpeaking ? "text-convix-600" : "text-muted-foreground"
+                      )}>
+                        {voiceStatus}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button onClick={toggleMute}
+                      className={cn("w-12 h-12 rounded-full flex items-center justify-center transition-colors",
+                        muted ? "bg-red-100 text-red-600" : "bg-muted text-foreground hover:bg-muted/80"
+                      )}>
+                      {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    </button>
+                    <button onClick={endCall}
+                      className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 transition-colors">
+                      <PhoneOff className="w-6 h-6" />
+                    </button>
+                  </div>
+                  {muted && <p className="text-xs text-red-500">Microphone muted</p>}
+                </>
+              )}
+
+              {callState === "ended" && postCallSummary && (
+                <div className="max-w-sm text-center space-y-4">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
+                    <Phone className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">Call Ended</p>
+                    <p className="text-sm text-muted-foreground mt-3 leading-relaxed">{postCallSummary}</p>
+                  </div>
+                  <button onClick={() => { setCallState("idle"); setCallDuration(0); setPostCallSummary(null); setVoiceMessages([]); }}
+                    className="px-5 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700 transition-colors">
+                    Start New Call
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Voice debug sidebar */}
@@ -342,13 +722,15 @@ export default function AgentTestPage({ params }: { params: { id: string } }) {
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className={cn("font-medium", callState === "active" ? "text-green-600" : "text-foreground")}>{callState}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span className="font-medium font-mono">{formatDuration(callDuration)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Agent</span><span className="font-medium">{agent.name}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Agent</span><span className="font-medium">{agentName}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Mic</span><span className={cn("font-medium", muted ? "text-red-600" : "text-green-600")}>{muted ? "Muted" : "Active"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Listening</span><span className={cn("font-medium", isListening ? "text-green-600" : "text-muted-foreground")}>{isListening ? "Yes" : "No"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Speaking</span><span className={cn("font-medium", isSpeaking ? "text-convix-600" : "text-muted-foreground")}>{isSpeaking ? "Yes" : "No"}</span></div>
               </div>
             </div>
             <div className="bg-white rounded-xl border border-border p-4">
               <h3 className="text-xs font-semibold text-foreground mb-2 uppercase tracking-wide">Agent Knowledge</h3>
-              {kb.length > 0 ? kb.map(item => (
+              {knowledgeItems.length > 0 ? knowledgeItems.map(item => (
                 <div key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground py-1">
                   {item.type === "url" ? <Link2 className="w-3 h-3 text-convix-500 shrink-0" /> : <FileText className="w-3 h-3 text-convix-500 shrink-0" />}
                   {item.title}

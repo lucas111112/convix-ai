@@ -2,19 +2,28 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Bot, ArrowRight } from "lucide-react";
-import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-
-// TODO: REPLACE WITH API — POST /auth/login
+import { loginUser } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("demo@axon.ai");
+  const [password, setPassword] = useState("password");
+  const [error, setError] = useState("");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => { setLoading(false); router.push("/dashboard"); }, 1200);
+    setError("");
+
+    try {
+      await loginUser(email, password);
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign in failed");
+      setLoading(false);
+    }
   };
 
   return (
@@ -29,15 +38,28 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl border border-border p-8 shadow-sm">
           <h1 className="text-xl font-bold text-foreground mb-1">Welcome back</h1>
           <p className="text-sm text-muted-foreground mb-6">Sign in to your dashboard</p>
+          {error && (
+            <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
           <form onSubmit={submit} className="space-y-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
-              <input type="email" defaultValue="demo@axon.ai" required
+              <input
+                type="email"
+                value={email}
+                required
+                onChange={(event) => setEmail(event.target.value)}
                 className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Password</label>
-              <input type="password" defaultValue="password" required
+              <input
+                type="password"
+                value={password}
+                required
+                onChange={(event) => setPassword(event.target.value)}
                 className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             </div>
             <div className="flex items-center justify-between text-xs">

@@ -1,10 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, Download, Zap, Bot, Coins, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { authenticatedFetch } from "@/lib/auth";
 import { toast } from "sonner";
-
-// TODO: REPLACE WITH API — GET /billing/plans, /billing/usage, /billing/invoices
 
 type Tab = "plans" | "credits" | "usage";
 type Cadence = "monthly" | "yearly";
@@ -18,12 +17,11 @@ interface Plan {
   creditsPerMonth: number | null;
   agents: number | null;
   popular?: boolean;
-  current?: boolean;
 }
 
 const PLANS: Plan[] = [
   {
-    id: "starter",
+    id: "STARTER",
     name: "Starter",
     monthlyPrice: 0,
     description: "For individuals and side projects",
@@ -37,14 +35,13 @@ const PLANS: Plan[] = [
     ],
   },
   {
-    id: "builder",
+    id: "BUILDER",
     name: "Builder",
     monthlyPrice: 49,
     description: "For growing teams and products",
     creditsPerMonth: 10000,
     agents: 5,
     popular: true,
-    current: true,
     features: [
       "10,000 credits / month",
       "5 agents",
@@ -56,7 +53,7 @@ const PLANS: Plan[] = [
     ],
   },
   {
-    id: "pro",
+    id: "PRO",
     name: "Pro",
     monthlyPrice: 149,
     description: "For teams that need more scale",
@@ -73,7 +70,7 @@ const PLANS: Plan[] = [
     ],
   },
   {
-    id: "enterprise",
+    id: "ENTERPRISE",
     name: "Enterprise",
     monthlyPrice: null,
     description: "Custom solutions for large organizations",
@@ -106,27 +103,83 @@ const CREDIT_PACKS: CreditPack[] = [
   { id: "pack_50000", credits: 50000, price: 299, savings: "Save $151" },
 ];
 
-const INVOICES = [
-  { id: "inv_001", date: "Feb 1, 2026", amount: "$39.00", status: "paid" },
-  { id: "inv_002", date: "Jan 1, 2026", amount: "$39.00", status: "paid" },
-  { id: "inv_003", date: "Dec 1, 2025", amount: "$39.00", status: "paid" },
-];
-
-const USAGE = {
-  credits: { used: 1240, limit: 10000 },
-  agents: { used: 2, limit: 5 },
-};
-
-const YEARLY_DISCOUNT = 0.20; // 20% off
+const YEARLY_DISCOUNT = 0.20;
 
 function yearlyPrice(monthly: number) {
   return Math.round(monthly * (1 - YEARLY_DISCOUNT));
+}
+
+interface WorkspaceResponse {
+  workspace: {
+    plan: string;
+    creditBalance: number;
+    name: string;
+  };
+}
+
+interface CreditsResponse {
+  credits: {
+    balance: number;
+    plan: string;
+    monthlyGrant: number;
+    consumed: {
+      messages: number;
+      voice: number;
+      tagging: number;
+      total: number;
+    };
+  };
+}
+
+interface AgentsResponse {
+  agents: { id: string }[];
 }
 
 export default function BillingPage() {
   const [tab, setTab] = useState<Tab>("plans");
   const [cadence, setCadence] = useState<Cadence>("yearly");
   const [creditQty, setCreditQty] = useState<Record<string, number>>({});
+
+  // Real data from API
+  const [currentPlan, setCurrentPlan] = useState<string>("STARTER");
+  const [creditBalance, setCreditBalance] = useState<number>(0);
+  const [creditsConsumed, setCreditsConsumed] = useState<number>(0);
+  const [monthlyGrant, setMonthlyGrant] = useState<number>(500);
+  const [agentCount, setAgentCount] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchBillingData = async () => {
+      setLoading(true);
+      try {
+        const [workspaceRes, creditsRes, agentsRes] = await Promise.all([
+          authenticatedFetch<WorkspaceResponse>("/v1/workspace"),
+          authenticatedFetch<CreditsResponse>("/v1/analytics/credits"),
+          authenticatedFetch<AgentsResponse>("/v1/agents"),
+        ]);
+        if (cancelled) return;
+
+        setCurrentPlan(workspaceRes.workspace.plan);
+        setCreditBalance(workspaceRes.workspace.creditBalance);
+        setCreditsConsumed(creditsRes.credits.consumed.total);
+        setMonthlyGrant(creditsRes.credits.monthlyGrant);
+        setAgentCount(agentsRes.agents?.length ?? 0);
+      } catch {
+        // keep defaults on error
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void fetchBillingData();
+    return () => { cancelled = true; };
+  }, []);
+
+  const currentPlanObj = PLANS.find(p => p.id === currentPlan);
+  const agentLimit = currentPlanObj?.agents ?? null;
+  const creditLimit = currentPlanObj?.creditsPerMonth ?? null;
 
   const qty = (id: string) => creditQty[id] ?? 1;
   const setQty = (id: string, v: number) => setCreditQty(p => ({ ...p, [id]: Math.max(1, v) }));
@@ -172,6 +225,7 @@ export default function BillingPage() {
 
           <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {PLANS.map(plan => {
+              const isCurrent = plan.id === currentPlan;
               const price = plan.monthlyPrice === null ? null
                 : cadence === "yearly" && plan.monthlyPrice > 0
                   ? yearlyPrice(plan.monthlyPrice)
@@ -179,8 +233,8 @@ export default function BillingPage() {
 
               return (
                 <div key={plan.id} className={cn("bg-white rounded-xl border p-5 flex flex-col gap-4 relative",
-                  plan.current ? "border-convix-400 ring-2 ring-convix-200" : "border-border",
-                  plan.popular && !plan.current ? "border-convix-300" : ""
+                  isCurrent ? "border-convix-400 ring-2 ring-convix-200" : "border-border",
+                  plan.popular && !isCurrent ? "border-convix-300" : ""
                 )}>
                   {/* Badges */}
                   <div className="flex items-center gap-2 flex-wrap">
@@ -188,7 +242,7 @@ export default function BillingPage() {
                     {plan.popular && (
                       <span className="text-[10px] font-semibold bg-amber-400 text-amber-900 px-2 py-0.5 rounded-full">⭐ Popular</span>
                     )}
-                    {plan.current && (
+                    {isCurrent && (
                       <span className="text-[10px] font-semibold bg-convix-600 text-white px-2 py-0.5 rounded-full">Current</span>
                     )}
                   </div>
@@ -224,16 +278,15 @@ export default function BillingPage() {
 
                   <button
                     onClick={() => {
-                      if (plan.current) return;
+                      if (isCurrent) return;
                       toast.success(price === null ? "Sales team will contact you!" : `Upgrade to ${plan.name} initiated!`);
                     }}
                     className={cn("w-full py-2 text-sm font-medium rounded-lg transition-colors",
-                      plan.current ? "bg-muted text-muted-foreground cursor-default" :
+                      isCurrent ? "bg-muted text-muted-foreground cursor-default" :
                       price === null ? "bg-foreground text-background hover:bg-foreground/90" :
-                      plan.popular ? "bg-convix-600 text-white hover:bg-convix-700" :
                       "bg-convix-600 text-white hover:bg-convix-700"
                     )}>
-                    {plan.current ? "Current Plan" : price === null ? "Contact Sales" : `Upgrade to ${plan.name}`}
+                    {isCurrent ? "Current Plan" : price === null ? "Contact Sales" : `Upgrade to ${plan.name}`}
                   </button>
                 </div>
               );
@@ -253,12 +306,17 @@ export default function BillingPage() {
               </div>
               <div>
                 <div className="text-sm font-semibold text-foreground">Credit Balance</div>
-                <div className="text-2xl font-bold text-convix-700">8,760 <span className="text-sm font-normal text-muted-foreground">credits remaining</span></div>
+                <div className="text-2xl font-bold text-convix-700">
+                  {loading ? "—" : creditBalance.toLocaleString()}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">credits remaining</span>
+                </div>
               </div>
             </div>
             <div className="text-xs text-muted-foreground text-right">
-              <div>1,240 used this month</div>
-              <div className="text-convix-600 font-medium mt-0.5">10,000 monthly allocation resets in 10 days</div>
+              <div>{loading ? "—" : creditsConsumed.toLocaleString()} used this month</div>
+              {monthlyGrant > 0 && (
+                <div className="text-convix-600 font-medium mt-0.5">{monthlyGrant.toLocaleString()} monthly allocation</div>
+              )}
             </div>
           </div>
 
@@ -340,20 +398,22 @@ export default function BillingPage() {
             {[
               {
                 label: "Credits Used",
-                used: USAGE.credits.used,
-                limit: USAGE.credits.limit,
+                used: creditsConsumed,
+                limit: creditLimit ?? creditsConsumed + 1,
                 icon: Coins,
                 color: "bg-convix-600",
+                unlimited: creditLimit === null,
               },
               {
                 label: "Agents",
-                used: USAGE.agents.used,
-                limit: USAGE.agents.limit,
+                used: agentCount,
+                limit: agentLimit ?? agentCount + 1,
                 icon: Bot,
                 color: "bg-purple-500",
+                unlimited: agentLimit === null,
               },
             ].map(item => {
-              const pct = Math.round((item.used / item.limit) * 100);
+              const pct = item.unlimited ? 0 : Math.round((item.used / item.limit) * 100);
               return (
                 <div key={item.label} className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -362,14 +422,17 @@ export default function BillingPage() {
                       {item.label}
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {item.used.toLocaleString()} / {item.limit.toLocaleString()} ({pct}%)
+                      {loading ? "—" : item.unlimited
+                        ? `${item.used.toLocaleString()} / ∞`
+                        : `${item.used.toLocaleString()} / ${item.limit.toLocaleString()} (${pct}%)`
+                      }
                     </span>
                   </div>
                   <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                     <div className={cn("h-full rounded-full transition-all", item.color)}
-                      style={{ width: `${Math.min(pct, 100)}%` }} />
+                      style={{ width: item.unlimited ? "8%" : `${Math.min(pct, 100)}%` }} />
                   </div>
-                  {pct >= 80 && (
+                  {!item.unlimited && pct >= 80 && (
                     <p className="text-xs text-orange-600">
                       Approaching your {item.label.toLowerCase()} limit.{" "}
                       <span className="underline cursor-pointer" onClick={() => setTab("plans")}>Upgrade</span> or{" "}
@@ -381,32 +444,32 @@ export default function BillingPage() {
             })}
           </div>
 
-          {/* Invoices */}
+          {/* Plan summary */}
           <div className="bg-white rounded-xl border border-border p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm text-foreground">Invoices</h3>
+              <h3 className="font-semibold text-sm text-foreground">Current Plan</h3>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Zap className="w-3.5 h-3.5 text-convix-600" />
-                <span>Builder Plan · <strong className="text-foreground">$39/mo</strong> (yearly)</span>
+                <span>
+                  {loading ? "—" : currentPlanObj ? (
+                    <>
+                      {currentPlanObj.name} Plan{currentPlanObj.monthlyPrice !== null && currentPlanObj.monthlyPrice > 0 && (
+                        <> · <strong className="text-foreground">${yearlyPrice(currentPlanObj.monthlyPrice)}/mo</strong> (yearly)</>
+                      )}
+                      {currentPlanObj.monthlyPrice === null && (
+                        <> · <strong className="text-foreground">Custom pricing</strong></>
+                      )}
+                      {currentPlanObj.monthlyPrice === 0 && (
+                        <> · <strong className="text-foreground">Free</strong></>
+                      )}
+                    </>
+                  ) : currentPlan}
+                </span>
               </div>
             </div>
-            <div className="space-y-2">
-              {INVOICES.map(inv => (
-                <div key={inv.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div>
-                    <span className="text-sm text-foreground">{inv.date}</span>
-                    <span className="ml-3 text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">{inv.status}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-foreground">{inv.amount}</span>
-                    <button onClick={() => toast.success("Invoice downloaded")}
-                      className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors">
-                      <Download className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Contact support to view invoices or change billing details.
+            </p>
           </div>
         </div>
       )}

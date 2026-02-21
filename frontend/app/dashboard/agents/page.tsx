@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Plus, Bot, X, FlaskConical, Trash2, Link2, FileText, Pencil, Mic,
@@ -7,13 +7,30 @@ import {
   Clock, ChevronRight, ExternalLink, AlertTriangle,
 } from "lucide-react";
 import {
-  mockAgents, mockKnowledgeItems, mockCustomFields,
+  mockCustomFields,
   type Agent, type ChannelType, type KnowledgeItem, type CustomField,
 } from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
+import { authenticatedFetch } from "@/lib/auth";
 import { toast } from "sonner";
 
 // TODO: REPLACE WITH API — GET/PATCH /agents/:id
+
+// ── Channel type mapping (frontend id ↔ backend ChannelType enum) ───────────
+
+const CHANNEL_ID_TO_TYPE: Record<string, string> = {
+  whatsapp: "WHATSAPP",
+  telegram: "TELEGRAM",
+  messenger: "MESSENGER",
+  slack: "SLACK",
+  sms_twilio: "SMS",
+  voice_twilio: "VOICE",
+  email: "EMAIL",
+};
+
+const TYPE_TO_CHANNEL_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(CHANNEL_ID_TO_TYPE).map(([k, v]) => [v, k])
+);
 
 // ── Channel definitions ─────────────────────────────────────────────────────
 
@@ -123,9 +140,17 @@ const kbTypeIcon: Record<KbType, React.ElementType> = {
   text: FileText, url: Link2, file: Upload, qa: HelpCircle, youtube: Play, sitemap: Map,
 };
 
-const channelEmoji: Record<ChannelType, string> = {
+const channelEmoji: Record<string, string> = {
   web: "💬", whatsapp: "💚", instagram: "📸", sms: "📱",
   messenger: "💙", email: "📧", voice: "📞", slack: "🟨",
+  telegram: "✈️",
+};
+
+// Maps backend ChannelType enum → frontend display key
+const BACKEND_TYPE_TO_UI: Record<string, string> = {
+  WEB: "web", WHATSAPP: "whatsapp", TELEGRAM: "telegram",
+  MESSENGER: "messenger", SLACK: "slack", SMS: "sms",
+  VOICE: "voice", EMAIL: "email",
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -135,16 +160,53 @@ interface ChannelState { enabled: boolean; creds: Record<string, string> }
 interface AgentEditForm {
   name: string; systemPrompt: string; voiceEnabled: boolean;
   ttsVoice: string; speakingSpeed: number;
-  handoffEnabled: boolean; confidenceThreshold: number; handoffDest: string; supportEmail: string;
+  handoffEnabled: boolean; confidenceThreshold: number; handoffDest: string;
+  routingPolicy: string; supportEmail: string;
   knowledge: Omit<KnowledgeItem, "id" | "createdAt">[];
   channels: Record<string, ChannelState>;
-  businessHoursStart: string; businessHoursEnd: string;
+  businessHoursEnabled: boolean; businessHoursStart: string; businessHoursEnd: string;
+  businessHoursClosedMessage: string;
   customFields: CustomField[]; taggingEnabled: boolean; availableTags: string[];
 }
 
 interface KbForm {
   type: KbType; title: string; content: string; url: string;
   question: string; answer: string; fileName: string;
+}
+
+interface ApiAgent {
+  id: string;
+  name: string;
+  avatar: string;
+  systemPrompt: string;
+  status: "ACTIVE" | "INACTIVE" | "DRAFT";
+  mode: "TEXT" | "VOICE" | "BOTH";
+  createdAt: string;
+  activeChannelTypes?: string[];
+}
+
+interface ApiAgentsResponse {
+  agents: ApiAgent[];
+}
+
+interface ApiSingleAgentResponse {
+  agent: ApiAgent;
+}
+
+function toUiAgent(agent: ApiAgent): Agent {
+  return {
+    id: agent.id,
+    name: agent.name,
+    avatar: agent.avatar || "🤖",
+    systemPrompt: agent.systemPrompt,
+    status: agent.status === "ACTIVE" ? "active" : "inactive",
+    channels: (agent.activeChannelTypes ?? [])
+      .map(t => BACKEND_TYPE_TO_UI[t])
+      .filter(Boolean) as ChannelType[],
+    mode: agent.mode.toLowerCase() as "text" | "voice" | "both",
+    toolIds: [],
+    createdAt: new Date(agent.createdAt).toISOString().slice(0, 10),
+  };
 }
 
 const initChannels = (): Record<string, ChannelState> => {
@@ -162,10 +224,12 @@ const emptyEditForm = (agent?: Agent, kb?: KnowledgeItem[]): AgentEditForm => ({
   systemPrompt: agent?.systemPrompt ?? "",
   voiceEnabled: agent ? (agent.mode === "voice" || agent.mode === "both") : false,
   ttsVoice: "Alloy", speakingSpeed: 1.0,
-  handoffEnabled: true, confidenceThreshold: 0.65, handoffDest: "live_agent", supportEmail: "",
+  handoffEnabled: true, confidenceThreshold: 0.65, handoffDest: "LIVE_AGENT",
+  routingPolicy: "", supportEmail: "",
   knowledge: (kb ?? []).map(({ id: _id, createdAt: _c, ...rest }) => rest),
   channels: initChannels(),
-  businessHoursStart: "09:00", businessHoursEnd: "18:00",
+  businessHoursEnabled: false, businessHoursStart: "09:00", businessHoursEnd: "18:00",
+  businessHoursClosedMessage: "Thank you for reaching out! We're currently outside our business hours. We'll get back to you as soon as we're available.",
   customFields: [...mockCustomFields], taggingEnabled: false, availableTags: [],
 });
 
@@ -207,8 +271,10 @@ function previewVoice(voiceName: string, speed: number) {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>(mockAgents);
-  const [knowledge, setKnowledge] = useState<Record<string, KnowledgeItem[]>>(mockKnowledgeItems);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState("");
+  const [knowledge, setKnowledge] = useState<Record<string, KnowledgeItem[]>>({});
 
   // Create modal
   const [showCreate, setShowCreate] = useState(false);
@@ -234,60 +300,248 @@ export default function AgentsPage() {
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const togglePassword = (key: string) => setShowPasswords(p => ({ ...p, [key]: !p[key] }));
 
+  // Channel connection state
+  const [connectedChannels, setConnectedChannels] = useState<Set<string>>(new Set());
+  const [connectingChannel, setConnectingChannel] = useState<string | null>(null);
+
   // Tag input
   const [tagInput, setTagInput] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAgents = async () => {
+      setAgentsLoading(true);
+      setAgentsError("");
+      try {
+        const response = await authenticatedFetch<ApiAgentsResponse>("/v1/agents", {
+          method: "GET",
+        });
+        if (cancelled) return;
+        setAgents((response.agents ?? []).map(toUiAgent));
+      } catch (error) {
+        if (cancelled) return;
+        setAgentsError(error instanceof Error ? error.message : "Failed to load agents");
+      } finally {
+        if (!cancelled) {
+          setAgentsLoading(false);
+        }
+      }
+    };
+
+    void loadAgents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  const openEdit = (agent: Agent) => {
+  const openEdit = async (agent: Agent) => {
     const agentKb = knowledge[agent.id] ?? [];
+    const form = emptyEditForm(agent, agentKb);
+
+    // Try to load real channel connection state from the backend
+    try {
+      const res = await authenticatedFetch<{
+        channels: Array<{ type: string; isConnected: boolean; hasCredentials: boolean }>;
+      }>(`/v1/agents/${agent.id}/channels`);
+      const connected = new Set<string>();
+      for (const ch of res.channels ?? []) {
+        if (ch.isConnected) {
+          const frontendId = TYPE_TO_CHANNEL_ID[ch.type];
+          if (frontendId) {
+            form.channels[frontendId] = { ...form.channels[frontendId], enabled: true };
+            connected.add(frontendId);
+          }
+        }
+      }
+      setConnectedChannels(connected);
+    } catch {
+      setConnectedChannels(new Set());
+    }
+
     setEditId(agent.id);
-    setEditForm(emptyEditForm(agent, agentKb));
+    setEditForm(form);
     setEditTab("general");
     setDeleteConfirmInput("");
     setShowPasswords({});
   };
 
-  const toggleStatus = (id: string) =>
-    setAgents(prev => prev.map(a => a.id === id ? { ...a, status: a.status === "active" ? "inactive" : "active" } : a));
-
-  const createAgent = () => {
-    if (!createName.trim()) { toast.error("Agent name is required"); return; }
-    if (!createPrompt.trim()) { toast.error("System prompt is required"); return; }
-    const id = `agent_${Date.now()}`;
-    const newAgent: Agent = {
-      id, name: createName, avatar: "🤖", systemPrompt: createPrompt,
-      status: "inactive", channels: [], mode: createVoice ? "both" : "text",
-      toolIds: [], createdAt: new Date().toISOString().split("T")[0],
-    };
-    setAgents(prev => [...prev, newAgent]);
-    setShowCreate(false); setCreateName(""); setCreatePrompt(""); setCreateVoice(false);
-    toast.success(`Agent "${newAgent.name}" created!`);
+  const handleConnectChannel = async (channelId: string) => {
+    if (!editId) return;
+    const backendType = CHANNEL_ID_TO_TYPE[channelId];
+    if (!backendType) { toast.error("No API credentials needed for Web Widget"); return; }
+    const ch = CHANNEL_DEFS.find(c => c.id === channelId);
+    if (!ch) return;
+    const state = editForm.channels[channelId];
+    // Validate all credential fields are filled
+    const missing = ch.creds.filter(c => !state?.creds[c.key]?.trim());
+    if (missing.length > 0) {
+      toast.error(`Please fill in: ${missing.map(c => c.label).join(", ")}`);
+      return;
+    }
+    setConnectingChannel(channelId);
+    try {
+      await authenticatedFetch(`/v1/agents/${editId}/channels/${backendType}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credentials: state.creds, isActive: true }),
+      });
+      toast.success(`${ch.label} connected!`);
+      setConnectedChannels(prev => { const next = new Set(prev); next.add(channelId); return next; });
+      // Update the agent card to show the newly connected channel
+      const uiType = BACKEND_TYPE_TO_UI[backendType] as ChannelType;
+      if (uiType) {
+        setAgents(prev => prev.map(a => a.id === editId && !a.channels.includes(uiType)
+          ? { ...a, channels: [...a.channels, uiType] } : a));
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to connect channel");
+    } finally {
+      setConnectingChannel(null);
+    }
   };
 
-  const saveEdit = () => {
+  const handleDisconnectChannel = async (channelId: string) => {
+    if (!editId) return;
+    const backendType = CHANNEL_ID_TO_TYPE[channelId];
+    if (!backendType) return;
+    const ch = CHANNEL_DEFS.find(c => c.id === channelId);
+    try {
+      await authenticatedFetch(`/v1/agents/${editId}/channels/${backendType}`, { method: "DELETE" });
+      toast.success(`${ch?.label ?? "Channel"} disconnected`);
+      setConnectedChannels(prev => { const next = new Set(prev); next.delete(channelId); return next; });
+      setChannelEnabled(channelId, false);
+      // Update the agent card to remove the disconnected channel
+      const backendType2 = CHANNEL_ID_TO_TYPE[channelId];
+      const uiType2 = backendType2 ? BACKEND_TYPE_TO_UI[backendType2] as ChannelType : null;
+      if (uiType2) {
+        setAgents(prev => prev.map(a => a.id === editId
+          ? { ...a, channels: a.channels.filter(c => c !== uiType2) } : a));
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to disconnect channel");
+    }
+  };
+
+  const toggleStatus = async (id: string) => {
+    const agent = agents.find(a => a.id === id);
+    if (!agent) return;
+    const newApiStatus = agent.status === "active" ? "INACTIVE" : "ACTIVE";
+    const newUiStatus = agent.status === "active" ? "inactive" : "active";
+    // Optimistic update
+    setAgents(prev => prev.map(a => a.id === id ? { ...a, status: newUiStatus } : a));
+    try {
+      await authenticatedFetch(`/v1/agents/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newApiStatus }),
+      });
+      toast.success(`Agent ${newUiStatus === "active" ? "enabled" : "disabled"}`);
+    } catch (error) {
+      // Revert on failure
+      setAgents(prev => prev.map(a => a.id === id ? { ...a, status: agent.status } : a));
+      toast.error("Failed to update agent status");
+    }
+  };
+
+  const createAgent = async () => {
+    if (!createName.trim()) { toast.error("Agent name is required"); return; }
+    if (!createPrompt.trim()) { toast.error("System prompt is required"); return; }
+    try {
+      const payload = await authenticatedFetch<ApiSingleAgentResponse>("/v1/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: createName,
+          systemPrompt: createPrompt,
+          mode: createVoice ? "BOTH" : "TEXT",
+        }),
+      });
+      const newAgent = toUiAgent(payload.agent);
+      setAgents(prev => [newAgent, ...prev]);
+      setShowCreate(false);
+      setCreateName("");
+      setCreatePrompt("");
+      setCreateVoice(false);
+      toast.success(`Agent "${newAgent.name}" created! Opening settings…`);
+      // Immediately open the full edit modal so the user can configure all settings
+      openEdit(newAgent);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create agent");
+    }
+  };
+
+  const saveEdit = async () => {
     if (!editId) return;
     if (!editForm.name.trim()) { toast.error("Agent name is required"); return; }
     if (!editForm.systemPrompt.trim()) { toast.error("System prompt is required"); return; }
-    setAgents(prev => prev.map(a => a.id === editId ? {
-      ...a, name: editForm.name, systemPrompt: editForm.systemPrompt,
-      mode: editForm.voiceEnabled ? "both" : "text",
-    } : a));
-    setKnowledge(prev => ({
-      ...prev,
-      [editId]: editForm.knowledge.map((k, i) => ({ ...k, id: `kb_${Date.now()}_${i}`, createdAt: new Date().toISOString().split("T")[0] })),
-    }));
-    setEditId(null);
-    toast.success("Agent saved!");
+    try {
+      // Build business hours JSON for the backend
+      const businessHours = editForm.businessHoursEnabled ? {
+        enabled: true,
+        timezone: "UTC",
+        closedMessage: editForm.businessHoursClosedMessage,
+        schedule: {
+          monday: { open: editForm.businessHoursStart, close: editForm.businessHoursEnd, enabled: true },
+          tuesday: { open: editForm.businessHoursStart, close: editForm.businessHoursEnd, enabled: true },
+          wednesday: { open: editForm.businessHoursStart, close: editForm.businessHoursEnd, enabled: true },
+          thursday: { open: editForm.businessHoursStart, close: editForm.businessHoursEnd, enabled: true },
+          friday: { open: editForm.businessHoursStart, close: editForm.businessHoursEnd, enabled: true },
+          saturday: { open: "09:00", close: "17:00", enabled: false },
+          sunday: { open: "09:00", close: "17:00", enabled: false },
+        },
+      } : { enabled: false };
+
+      await authenticatedFetch(`/v1/agents/${editId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editForm.name,
+          systemPrompt: editForm.systemPrompt,
+          mode: editForm.voiceEnabled ? "BOTH" : "TEXT",
+          handoffEnabled: editForm.handoffEnabled,
+          handoffThreshold: editForm.confidenceThreshold,
+          handoffDest: editForm.handoffDest,
+          routingPolicy: editForm.routingPolicy,
+          supportEmail: editForm.supportEmail,
+          taggingEnabled: editForm.taggingEnabled,
+          availableTags: editForm.availableTags,
+          businessHours,
+        }),
+      });
+      setAgents(prev => prev.map(a => a.id === editId ? {
+        ...a,
+        name: editForm.name,
+        systemPrompt: editForm.systemPrompt,
+        mode: editForm.voiceEnabled ? "both" : "text",
+      } : a));
+      setKnowledge(prev => ({
+        ...prev,
+        [editId]: editForm.knowledge.map((k, i) => ({ ...k, id: `kb_${Date.now()}_${i}`, createdAt: new Date().toISOString().split("T")[0] })),
+      }));
+      setEditId(null);
+      toast.success("Agent saved!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save agent");
+    }
   };
 
-  const deleteAgent = () => {
+  const deleteAgent = async () => {
     if (!editId) return;
     const agent = agents.find(a => a.id === editId);
     if (deleteConfirmInput !== agent?.name) { toast.error("Name doesn't match"); return; }
-    setAgents(prev => prev.filter(a => a.id !== editId));
-    setEditId(null);
-    toast.success(`Agent "${agent?.name}" deleted`);
+    try {
+      await authenticatedFetch(`/v1/agents/${editId}`, { method: "DELETE" });
+      setAgents(prev => prev.filter(a => a.id !== editId));
+      setEditId(null);
+      setConnectedChannels(new Set());
+      toast.success(`Agent "${agent?.name}" deleted`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete agent");
+    }
   };
 
   // ── Knowledge helpers ──────────────────────────────────────────────────
@@ -399,7 +653,19 @@ export default function AgentsPage() {
 
       {/* Agent cards */}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {agents.map(agent => {
+        {agentsError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm md:col-span-2 xl:col-span-3">
+            {agentsError}
+          </div>
+        ) : agentsLoading ? (
+          <div className="rounded-xl border border-border bg-white text-muted-foreground px-4 py-3 text-sm md:col-span-2 xl:col-span-3">
+            Loading agents...
+          </div>
+        ) : agents.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-white text-muted-foreground px-4 py-3 text-sm md:col-span-2 xl:col-span-3">
+            No agents found. Create one to test your workflows.
+          </div>
+        ) : agents.map(agent => {
           const agentKb = knowledge[agent.id] ?? [];
           const hasVoice = agent.mode === "voice" || agent.mode === "both";
           return (
@@ -528,7 +794,7 @@ export default function AgentsPage() {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
               <h2 className="font-semibold text-foreground">Edit: {currentAgent.name}</h2>
-              <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-4 h-4 text-muted-foreground" /></button>
+              <button onClick={() => { setEditId(null); setConnectedChannels(new Set()); }} className="p-1.5 rounded-lg hover:bg-muted"><X className="w-4 h-4 text-muted-foreground" /></button>
             </div>
 
             {/* Tabs */}
@@ -635,14 +901,12 @@ export default function AgentsPage() {
                           <p className="text-xs text-muted-foreground mt-1">AI hands off when confidence drops below this value.</p>
                         </div>
                         <div>
-                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Handoff Destination</label>
-                          <select value={editForm.handoffDest} onChange={e => setEditForm(p => ({ ...p, handoffDest: e.target.value }))}
-                            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
-                            <option value="live_agent">Live Agent (in-dashboard)</option>
-                            <option value="zendesk">Zendesk</option>
-                            <option value="freshdesk">Freshdesk</option>
-                            <option value="email">Email Queue</option>
-                          </select>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Routing Policy</label>
+                          <textarea value={editForm.routingPolicy}
+                            onChange={e => setEditForm(p => ({ ...p, routingPolicy: e.target.value }))}
+                            rows={3} placeholder="Describe when and how to route to a human. e.g. Always escalate billing disputes. If a customer is angry, route immediately..."
+                            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
+                          <p className="text-[10px] text-muted-foreground mt-1">This policy is injected into the agent's system prompt. Be specific.</p>
                         </div>
                         <div>
                           <label className="text-xs font-medium text-muted-foreground mb-1 block">Support Email</label>
@@ -650,7 +914,20 @@ export default function AgentsPage() {
                             onChange={e => setEditForm(p => ({ ...p, supportEmail: e.target.value }))}
                             placeholder="support@yourcompany.com"
                             className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-                          <p className="text-[10px] text-muted-foreground mt-1">The AI will mention this address when routing to a human.</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">The AI will tell customers to email this address when routing to a human.</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Handoff Destination</label>
+                          <select value={editForm.handoffDest} onChange={e => setEditForm(p => ({ ...p, handoffDest: e.target.value }))}
+                            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white">
+                            <option value="LIVE_AGENT">Live Agent (in-dashboard)</option>
+                            <option value="ZENDESK">Zendesk</option>
+                            <option value="FRESHDESK">Freshdesk</option>
+                            <option value="GORGIAS">Gorgias</option>
+                            <option value="EMAIL_QUEUE">Email Queue</option>
+                            <option value="NONE">None (AI only)</option>
+                          </select>
+                          <p className="text-[10px] text-muted-foreground mt-1">Where handoffs are routed in the backend (Zendesk, Freshdesk, etc.).</p>
                         </div>
                       </div>
                     )}
@@ -763,6 +1040,13 @@ export default function AgentsPage() {
                               </div>
                             ) : (
                               <>
+                                {/* Connected badge */}
+                                {connectedChannels.has(ch.id) && (
+                                  <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                                    <span className="text-xs text-green-700 font-medium">Connected to this agent</span>
+                                  </div>
+                                )}
                                 {ch.creds.map(c => {
                                   const pk = `${ch.id}_${c.key}`;
                                   const shown = showPasswords[pk];
@@ -774,7 +1058,7 @@ export default function AgentsPage() {
                                           type={c.type === "password" && !shown ? "password" : "text"}
                                           value={state.creds[c.key] ?? ""}
                                           onChange={e => setChannelCred(ch.id, c.key, e.target.value)}
-                                          placeholder={c.placeholder}
+                                          placeholder={connectedChannels.has(ch.id) && !state.creds[c.key] ? "(already saved — enter a new value to update)" : c.placeholder}
                                           className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 bg-white pr-9" />
                                         {c.type === "password" && (
                                           <button type="button" onClick={() => togglePassword(pk)}
@@ -797,10 +1081,23 @@ export default function AgentsPage() {
                                 {ch.voiceNote && (
                                   <p className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg">{ch.voiceNote}</p>
                                 )}
-                                <button onClick={() => toast.success(`${ch.label} connected!`)}
-                                  className="px-3 py-1.5 text-xs bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors">
-                                  Connect channel
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleConnectChannel(ch.id)}
+                                    disabled={connectingChannel === ch.id}
+                                    className="px-3 py-1.5 text-xs bg-convix-600 text-white font-medium rounded-lg hover:bg-convix-700 transition-colors disabled:opacity-50">
+                                    {connectingChannel === ch.id
+                                      ? "Connecting…"
+                                      : connectedChannels.has(ch.id) ? "Update credentials" : "Connect channel"}
+                                  </button>
+                                  {connectedChannels.has(ch.id) && (
+                                    <button
+                                      onClick={() => handleDisconnectChannel(ch.id)}
+                                      className="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+                                      Disconnect
+                                    </button>
+                                  )}
+                                </div>
                               </>
                             )}
                           </div>
@@ -816,25 +1113,46 @@ export default function AgentsPage() {
                 <div className="px-6 py-5 space-y-6">
                   {/* Business hours */}
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-muted-foreground" />
-                      <h3 className="text-sm font-semibold text-foreground">Business Hours</h3>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground mb-1 block">Opens at</label>
-                        <input type="time" value={editForm.businessHoursStart}
-                          onChange={e => setEditForm(p => ({ ...p, businessHoursStart: e.target.value }))}
-                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-muted-foreground" />
+                        <div>
+                          <h3 className="text-sm font-semibold text-foreground">Business Hours</h3>
+                          <p className="text-xs text-muted-foreground">Outside hours, the agent responds with a premade message.</p>
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground mb-1 block">Closes at</label>
-                        <input type="time" value={editForm.businessHoursEnd}
-                          onChange={e => setEditForm(p => ({ ...p, businessHoursEnd: e.target.value }))}
-                          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
-                      </div>
+                      <button onClick={() => setEditForm(p => ({ ...p, businessHoursEnabled: !p.businessHoursEnabled }))}
+                        className={cn("relative rounded-full transition-colors shrink-0", editForm.businessHoursEnabled ? "bg-convix-600" : "bg-muted border border-border")}
+                        style={{ height: "22px", width: "40px" }}>
+                        <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform", editForm.businessHoursEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                      </button>
                     </div>
-                    <p className="text-xs text-muted-foreground">Outside hours, the AI queues messages and responds when back online.</p>
+                    {editForm.businessHoursEnabled && (
+                      <div className="space-y-3 pl-3 border-l-2 border-convix-200">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground mb-1 block">Opens at (Mon–Fri)</label>
+                            <input type="time" value={editForm.businessHoursStart}
+                              onChange={e => setEditForm(p => ({ ...p, businessHoursStart: e.target.value }))}
+                              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground mb-1 block">Closes at (Mon–Fri)</label>
+                            <input type="time" value={editForm.businessHoursEnd}
+                              onChange={e => setEditForm(p => ({ ...p, businessHoursEnd: e.target.value }))}
+                              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Closed message</label>
+                          <textarea value={editForm.businessHoursClosedMessage}
+                            onChange={e => setEditForm(p => ({ ...p, businessHoursClosedMessage: e.target.value }))}
+                            rows={2}
+                            className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500 resize-none" />
+                          <p className="text-[10px] text-muted-foreground mt-1">Sent automatically when a customer messages outside business hours.</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Custom fields */}
@@ -929,7 +1247,7 @@ export default function AgentsPage() {
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
-              <button onClick={() => setEditId(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+              <button onClick={() => { setEditId(null); setConnectedChannels(new Set()); }} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
               <button onClick={saveEdit} className="px-4 py-2 bg-convix-600 text-white text-sm font-medium rounded-lg hover:bg-convix-700">Save changes</button>
             </div>
           </div>

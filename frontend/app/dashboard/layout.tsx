@@ -1,13 +1,15 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   LayoutDashboard, BarChart3, AppWindow,
   Bot, ChevronLeft, ChevronRight,
-  Bell, Search, LogOut, User, Layers, BookMarked, CreditCard
+  Bell, Search, LogOut, User, Layers, BookMarked, CreditCard,
+  AlertTriangle, MessageSquare, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hasValidSession, authenticatedFetch } from "@/lib/auth";
 
 const navMain = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -23,9 +25,142 @@ const navSecondary = [
 
 type NavItem = { label: string; href: string; icon: React.ElementType; badge?: number };
 
+type NotificationItem = {
+  id: string;
+  type: "handoff" | "new_conversation";
+  title: string;
+  description: string;
+  conversationId: string;
+  agentName: string;
+  customerName: string | null;
+  createdAt: string;
+};
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [activeAgentCount, setActiveAgentCount] = useState<number | null>(null);
+  const [workspaceName, setWorkspaceName] = useState("My Workspace");
+  const [workspacePlan, setWorkspacePlan] = useState("Starter Plan");
+
+  // Notifications state
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifCount, setNotifCount] = useState(0);
+  const [showNotif, setShowNotif] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    hasValidSession()
+      .then((ok) => {
+        if (!cancelled) {
+          setIsAuthenticated(ok);
+          if (!ok) {
+            router.replace("/login");
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsAuthenticated(false);
+          router.replace("/login");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingSession(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const res = await authenticatedFetch<{ count: number; items: NotificationItem[] }>("/v1/notifications");
+      setNotifCount(res.count ?? 0);
+      setNotifications(res.items ?? []);
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+
+    const loadHeaderData = async () => {
+      try {
+        const [agentsRes, workspaceRes] = await Promise.all([
+          authenticatedFetch<{ agents: Array<{ status: string }> }>("/v1/agents"),
+          authenticatedFetch<{ workspace: { name: string; plan: string } }>("/v1/workspace"),
+        ]);
+        if (cancelled) return;
+        const active = (agentsRes.agents ?? []).filter(a => a.status === "ACTIVE").length;
+        setActiveAgentCount(active);
+        if (workspaceRes.workspace?.name) setWorkspaceName(workspaceRes.workspace.name);
+        if (workspaceRes.workspace?.plan) {
+          const planMap: Record<string, string> = { STARTER: "Starter Plan", BUILDER: "Builder Plan", PRO: "Pro Plan", ENTERPRISE: "Enterprise" };
+          setWorkspacePlan(planMap[workspaceRes.workspace.plan] ?? workspaceRes.workspace.plan);
+        }
+      } catch {
+        // silently fail — header data is non-critical
+      }
+    };
+
+    void loadHeaderData();
+    void loadNotifications();
+
+    // Poll notifications every 60 seconds
+    const interval = setInterval(() => {
+      if (!cancelled) void loadNotifications();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, loadNotifications]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showNotif) return;
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotif(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showNotif]);
+
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen bg-muted/20 flex items-center justify-center">
+        <div className="text-sm text-muted-foreground">Checking session...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   const renderNav = (items: NavItem[]) =>
     items.map(item => {
@@ -64,7 +199,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="px-3 py-2 border-b border-border">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 cursor-pointer hover:bg-muted">
               <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs text-foreground font-medium truncate">My Workspace</span>
+              <span className="text-xs text-foreground font-medium truncate">{workspaceName}</span>
               <ChevronRight className="w-3 h-3 text-muted-foreground ml-auto" />
             </div>
           </div>
@@ -89,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium text-foreground truncate">My Account</div>
-                <div className="text-[10px] text-muted-foreground truncate">Builder Plan</div>
+                <div className="text-[10px] text-muted-foreground truncate">{workspacePlan}</div>
               </div>
               <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
@@ -118,14 +253,87 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-              <Bell className="w-4 h-4 text-muted-foreground" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-            </button>
-            <div className="flex items-center gap-2 ml-2">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-xs text-muted-foreground">3 active</span>
+            {/* Notification bell */}
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={() => setShowNotif(v => !v)}
+                className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+              >
+                <Bell className="w-4 h-4 text-muted-foreground" />
+                {notifCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[14px] h-[14px] bg-red-500 rounded-full flex items-center justify-center text-[9px] text-white font-bold px-0.5">
+                    {notifCount > 9 ? "9+" : notifCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Dropdown */}
+              {showNotif && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                    <span className="text-sm font-semibold text-foreground">Notifications</span>
+                    <button onClick={() => setShowNotif(false)} className="text-muted-foreground hover:text-foreground">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+                        <Bell className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                        <p className="text-sm text-muted-foreground">No notifications</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">Handoff requests and new conversations will appear here</p>
+                      </div>
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          className="flex items-start gap-3 px-4 py-3 hover:bg-muted/40 border-b border-border last:border-0 cursor-default"
+                        >
+                          <div className={cn(
+                            "w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5",
+                            n.type === "handoff"
+                              ? "bg-orange-100 text-orange-600"
+                              : "bg-convix-100 text-convix-600"
+                          )}>
+                            {n.type === "handoff"
+                              ? <AlertTriangle className="w-3.5 h-3.5" />
+                              : <MessageSquare className="w-3.5 h-3.5" />
+                            }
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-foreground">{n.title}</span>
+                              <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(n.createdAt)}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.description}</p>
+                            <p className="text-[10px] text-muted-foreground/60 mt-1">via {n.agentName}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {notifications.length > 0 && (
+                    <div className="px-4 py-2.5 border-t border-border">
+                      <button
+                        onClick={() => { void loadNotifications(); }}
+                        className="text-xs text-convix-600 hover:text-convix-700 font-medium"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
+            {activeAgentCount !== null && (
+              <div className="flex items-center gap-2 ml-2">
+                <div className={cn("w-2 h-2 rounded-full", activeAgentCount > 0 ? "bg-green-500 animate-pulse" : "bg-muted-foreground/40")} />
+                <span className="text-xs text-muted-foreground">{activeAgentCount} active</span>
+              </div>
+            )}
           </div>
         </header>
 

@@ -3,17 +3,28 @@ import Link from "next/link";
 import { useState } from "react";
 import { Bot, ArrowRight, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
-
-// TODO: REPLACE WITH API — POST /auth/register
+import { signupUser } from "@/lib/auth";
 
 export default function SignupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => { setLoading(false); router.push("/dashboard"); }, 1400);
+    setError("");
+
+    try {
+      await signupUser(name, email, password);
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign up failed");
+      setLoading(false);
+    }
   };
 
   return (
@@ -28,6 +39,11 @@ export default function SignupPage() {
         <div className="bg-white rounded-2xl border border-border p-8 shadow-sm">
           <h1 className="text-xl font-bold text-foreground mb-1">Start your free trial</h1>
           <p className="text-sm text-muted-foreground mb-5">14 days free · No credit card required</p>
+          {error && (
+            <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
           <div className="flex flex-col gap-1.5 mb-6">
             {["Full access to all features", "Up to 500 conversations", "14-day money-back guarantee"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -38,17 +54,33 @@ export default function SignupPage() {
           <form onSubmit={submit} className="space-y-4">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Full Name</label>
-              <input type="text" required placeholder="Jane Smith"
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Jane Smith"
                 className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Work Email</label>
-              <input type="email" required placeholder="jane@mystore.com"
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="jane@mystore.com"
                 className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Password</label>
-              <input type="password" required placeholder="Min. 8 characters"
+              <input
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Min. 8 characters"
                 className="w-full px-3 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-convix-500" />
             </div>
             <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
