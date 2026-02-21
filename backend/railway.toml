@@ -1,8 +1,8 @@
 [build]
-builder = "nixpacks"
-buildCommand = "npm run build && npx prisma generate"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npx prisma migrate deploy && node dist/index.js"
+startCommand = "sh -c 'npx prisma migrate deploy && node dist/index.js'"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
