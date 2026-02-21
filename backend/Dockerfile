@@ -4,11 +4,12 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm install
+COPY prisma ./prisma/
+RUN npm install && npx prisma generate
 
 # Copy source and build
 COPY . .
-RUN npm run build && npx prisma generate
+RUN npm run build
 
 EXPOSE 3001
 
