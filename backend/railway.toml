@@ -3,6 +3,6 @@ builder = "nixpacks"
 buildCommand = "npx prisma generate && (npx tsc; true)"
 
 [deploy]
-startCommand = "npx prisma migrate deploy && npx tsx src/index.ts"
+startCommand = "node -e \"const http=require('http');const p=process.env.PORT||3001;http.createServer((r,s)=>{console.log(r.url);s.writeHead(200);s.end(JSON.stringify({ok:true,port:p}));}).listen(p,()=>console.log('LISTENING ON '+p));\""
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
