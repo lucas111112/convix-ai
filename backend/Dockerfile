@@ -19,4 +19,4 @@ RUN npm run build
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "-c", "echo 'PORT='$PORT && npx prisma migrate deploy && echo 'Starting tsx...' && npx tsx src/index.ts 2>&1"]
